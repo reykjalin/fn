@@ -44,6 +44,57 @@ const Editor = struct {
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.left, .{})) {
+                    if (self.cursor.line == 0 and self.cursor.column == 0) {
+                        self.cursor = .{ .line = 0, .column = 0 };
+                    } else if (self.cursor.column == 0) {
+                        self.cursor.line -= 1;
+                        self.cursor.column = self.lines.items[self.cursor.line].text.items.len;
+                    } else {
+                        self.cursor.column -= 1;
+                    }
+
+                    ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.right, .{})) {
+                    const current_line = self.lines.items[self.cursor.line];
+
+                    if (self.cursor.line == self.lines.items.len - 1 and self.cursor.column == current_line.text.items.len) {
+                        // Do nothing because we're already at the end of the file.
+                        return;
+                    } else if (self.cursor.column == current_line.text.items.len) {
+                        self.cursor.line +|= 1;
+                        self.cursor.column = 0;
+                    } else {
+                        self.cursor.column +|= 1;
+                    }
+
+                    ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.up, .{})) {
+                    if (self.cursor.line == 0) {
+                        self.cursor.column = 0;
+                    } else {
+                        self.cursor.line -= 1;
+
+                        self.cursor.column = @min(
+                            self.lines.items[self.cursor.line].text.items.len,
+                            self.cursor.column,
+                        );
+                    }
+
+                    ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.down, .{})) {
+                    if (self.cursor.line == self.lines.items.len - 1) {
+                        self.cursor.column = self.lines.items[self.cursor.line].text.items.len;
+                    } else {
+                        self.cursor.line +|= 1;
+
+                        self.cursor.column = @min(
+                            self.lines.items[self.cursor.line].text.items.len,
+                            self.cursor.column,
+                        );
+                    }
+
+                    ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
                     try self.lines.items[self.cursor.line].text.appendSlice(t);
                     self.cursor.column +|= 1;
