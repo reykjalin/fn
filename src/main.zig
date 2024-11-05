@@ -96,7 +96,7 @@ const Editor = struct {
 
                     ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
-                    try self.lines.items[self.cursor.line].text.appendSlice(t);
+                    try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, t);
                     self.cursor.column +|= 1;
 
                     // We need to make sure we redraw the widget after changing the text.
