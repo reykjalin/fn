@@ -2,10 +2,16 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
+const Cursor = struct {
+    line: usize,
+    column: usize,
+};
+
 const Editor = struct {
     rich_text: vxfw.RichText,
     children: [1]vxfw.SubSurface = undefined,
     text: std.ArrayList(u8),
+    cursor: Cursor,
 
     pub fn widget(self: *Editor) vxfw.Widget {
         return .{
@@ -20,6 +26,8 @@ const Editor = struct {
             .key_press => |key| {
                 if (key.text) |t| {
                     try self.text.appendSlice(t);
+
+                    self.cursor.column +|= 1;
 
                     ctx.consumeAndRedraw();
                 }
@@ -57,6 +65,11 @@ const Editor = struct {
             .buffer = &.{},
             .children = &self.children,
             .focusable = true,
+            .cursor = .{
+                .row = @truncate(self.cursor.line),
+                .col = @truncate(self.cursor.column),
+                .shape = .beam,
+            },
         };
     }
 
@@ -137,6 +150,7 @@ pub fn main() !void {
         .editor = .{
             .rich_text = .{ .text = &.{text} },
             .text = std.ArrayList(u8).init(allocator),
+            .cursor = .{ .line = 0, .column = 0 },
         },
     };
     defer fnApp.editor.text.deinit();
