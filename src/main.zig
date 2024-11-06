@@ -47,6 +47,34 @@ const Editor = struct {
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.backspace, .{})) {
+                    if (self.cursor.line == 0 and self.cursor.column == 0) {
+                        // There's nothing to erase beyond the start of the file.
+                        return;
+                    } else if (self.cursor.column == 0) {
+                        // Join lines.
+
+                        // Cursor will be moved to the _current_ end of the previous line.
+                        const new_cursor_pos = self.lines.items[self.cursor.line - 1].text.items.len;
+
+                        // Append current line contents to previous line.
+                        try self.lines.items[self.cursor.line - 1].text.appendSlice(
+                            self.lines.items[self.cursor.line].text.items,
+                        );
+
+                        // Remove current line and free the memory.
+                        const removed_element = self.lines.orderedRemove(self.cursor.line);
+                        removed_element.text.deinit();
+
+                        // Update cursor position.
+                        self.cursor.line -= 1;
+                        self.cursor.column = new_cursor_pos;
+                    } else {
+                        _ = self.lines.items[self.cursor.line].text.orderedRemove(self.cursor.column - 1);
+                        self.cursor.column -= 1;
+                    }
+
+                    ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{})) {
                     if (self.cursor.line == 0 and self.cursor.column == 0) {
                         self.cursor = .{ .line = 0, .column = 0 };
