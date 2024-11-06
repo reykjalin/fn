@@ -307,6 +307,22 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
+    if (args.len > 1 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) {
+        const writer = std.io.getStdOut().writer();
+        try writer.print("Usage: fn [file]\n", .{});
+        try writer.print("\n", .{});
+        try writer.print("General options:\n", .{});
+        try writer.print("\n", .{});
+        try writer.print("  -h, --help     Print fn help\n", .{});
+        try writer.print("  -v, --version  Print fn help\n", .{});
+        std.process.exit(0);
+    }
+    if (args.len > 1 and (std.mem.eql(u8, args[1], "--version") or std.mem.eql(u8, args[1], "-v"))) {
+        const writer = std.io.getStdOut().writer();
+        try writer.print("0.0.0\n", .{});
+        std.process.exit(0);
+    }
+
     // Initialize vaxis app.
     var app = try vxfw.App.init(allocator);
     errdefer app.deinit();
