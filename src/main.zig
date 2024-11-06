@@ -2,6 +2,8 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
+const TAB_REPLACEMENT = "        ";
+
 const Cursor = struct {
     line: usize,
     column: usize,
@@ -40,8 +42,8 @@ const Editor = struct {
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.tab, .{})) {
                     // FIXME: Handle tabs properly without hard-coding spaces.
-                    try self.lines.items[self.cursor.line].text.appendSlice("    ");
-                    self.cursor.column +|= 4;
+                    try self.lines.items[self.cursor.line].text.append('\t');
+                    self.cursor.column +|= 1;
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
@@ -119,7 +121,13 @@ const Editor = struct {
         const rte_widgets = try ctx.arena.alloc(vxfw.RichText, self.lines.items.len);
         for (self.lines.items, 0..) |l, i| {
             var spans = std.ArrayList(vxfw.RichText.TextSpan).init(ctx.arena);
-            const span: vxfw.RichText.TextSpan = .{ .text = l.text.items };
+
+            // FIXME: Replace tabs with something other than 4-spaces during render?
+            const new_size = std.mem.replacementSize(u8, l.text.items, "\t", TAB_REPLACEMENT);
+            const buf = try ctx.arena.alloc(u8, new_size);
+            _ = std.mem.replace(u8, l.text.items, "\t", TAB_REPLACEMENT, buf);
+
+            const span: vxfw.RichText.TextSpan = .{ .text = buf };
             try spans.append(span);
 
             rte_widgets[i] = .{ .text = spans.items };
@@ -135,6 +143,14 @@ const Editor = struct {
             };
         }
 
+        const number_of_tabs_in_line = std.mem.count(
+            u8,
+            self.lines.items[self.cursor.line].text.items[0..self.cursor.column],
+            "\t",
+        );
+
+        const screen_cursor_column = self.cursor.column - number_of_tabs_in_line + (TAB_REPLACEMENT.len * number_of_tabs_in_line);
+
         return .{
             .size = max,
             .widget = self.widget(),
@@ -143,7 +159,7 @@ const Editor = struct {
             .focusable = true,
             .cursor = .{
                 .row = @truncate(self.cursor.line),
-                .col = @truncate(self.cursor.column),
+                .col = @truncate(screen_cursor_column),
                 .shape = .beam,
             },
         };
