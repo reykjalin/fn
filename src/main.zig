@@ -67,6 +67,7 @@ const Editor = struct {
             .mouse_leave => try ctx.setMouseShape(.default),
             .key_press => |key| {
                 if (key.matches(vaxis.Key.enter, .{})) {
+                    // FIXME: Insert newlines at cursor.
                     const line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
                     try self.lines.append(line);
 
@@ -76,7 +77,7 @@ const Editor = struct {
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.tab, .{})) {
-                    // FIXME: Handle tabs properly without hard-coding spaces.
+                    // FIXME: Insert tabs at cursor.
                     try self.lines.items[self.cursor.line].text.append('\t');
                     self.cursor.column +|= 1;
 
