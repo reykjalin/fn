@@ -177,7 +177,23 @@ const Editor = struct {
             "\t",
         );
 
-        const screen_cursor_column = self.cursor.column - number_of_tabs_in_line + (TAB_REPLACEMENT.len * number_of_tabs_in_line);
+        const screen_cursor_column =
+            self.cursor.column -
+            number_of_tabs_in_line +
+            (TAB_REPLACEMENT.len * number_of_tabs_in_line);
+
+        // We only show the cursor if it's actually visible.
+        var cursor: ?vxfw.CursorState = null;
+        if (self.cursor.line >= self.vertical_scroll_offset) {
+            var row: u16 = @truncate(self.cursor.line);
+            row -= @truncate(self.vertical_scroll_offset);
+
+            cursor = .{
+                .row = row,
+                .col = @truncate(screen_cursor_column),
+                .shape = .beam_blink,
+            };
+        }
 
         return .{
             .size = max,
@@ -185,11 +201,7 @@ const Editor = struct {
             .buffer = &.{},
             .children = children,
             .focusable = true,
-            .cursor = .{
-                .row = @truncate(self.cursor.line),
-                .col = @truncate(screen_cursor_column),
-                .shape = .beam,
-            },
+            .cursor = cursor,
         };
     }
 
