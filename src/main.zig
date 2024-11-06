@@ -17,6 +17,8 @@ const Editor = struct {
     cursor: Cursor,
     lines: std.ArrayList(Line),
     file: []const u8,
+    vertical_scroll_offset: usize,
+    horizontal_scroll_offset: usize,
 
     gpa: std.mem.Allocator,
 
@@ -28,8 +30,37 @@ const Editor = struct {
         };
     }
 
+    pub fn scroll_up(self: *Editor, number_of_lines: usize) void {
+        self.vertical_scroll_offset -|= number_of_lines;
+    }
+
+    pub fn scroll_down(self: *Editor, number_of_lines: usize) void {
+        self.vertical_scroll_offset +|= number_of_lines;
+
+        // Make the upper bound such that there is alwyas at least 1 line visible.
+        if (self.vertical_scroll_offset > self.lines.items.len -| 1) {
+            self.vertical_scroll_offset = self.lines.items.len -| 1;
+        }
+    }
+
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         switch (event) {
+            .mouse => |mouse| {
+                try ctx.setMouseShape(.text);
+
+                switch (mouse.button) {
+                    .wheel_up => {
+                        self.scroll_up(1);
+                        ctx.consumeAndRedraw();
+                    },
+                    .wheel_down => {
+                        self.scroll_down(1);
+                        ctx.consumeAndRedraw();
+                    },
+                    else => {},
+                }
+            },
+            .mouse_leave => try ctx.setMouseShape(.default),
             .key_press => |key| {
                 if (key.matches(vaxis.Key.enter, .{})) {
                     const line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
@@ -126,6 +157,14 @@ const Editor = struct {
                     }
 
                     ctx.consumeAndRedraw();
+                } else if (key.matches('d', .{ .ctrl = true })) {
+                    self.scroll_down(1);
+
+                    ctx.consumeAndRedraw();
+                } else if (key.matches('u', .{ .ctrl = true })) {
+                    self.scroll_up(1);
+
+                    ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
                     try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, t);
                     self.cursor.column +|= 1;
@@ -165,9 +204,16 @@ const Editor = struct {
         const children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len);
         for (rte_widgets, 0..) |rte, i| {
             const surface = try rte.widget().draw(ctx);
-            children[i] = .{
+
+            var row: i17 = @intCast(i);
+            row -= @intCast(self.vertical_scroll_offset);
+
+            self.children[i] = .{
                 .surface = surface,
-                .origin = .{ .row = @intCast(i), .col = 0 },
+                .origin = .{
+                    .row = row,
+                    .col = 0,
+                },
             };
         }
 
@@ -202,6 +248,7 @@ const Editor = struct {
             .children = children,
             .focusable = true,
             .cursor = cursor,
+            .handles_mouse = true,
         };
     }
 
@@ -292,6 +339,7 @@ const Fn = struct {
             .widget = self.widget(),
             .buffer = &.{},
             .children = &self.children,
+            .focusable = false,
         };
     }
 };
@@ -393,6 +441,8 @@ pub fn main() !void {
             .lines = lines,
             .gpa = allocator,
             .file = "",
+            .vertical_scroll_offset = 0,
+            .horizontal_scroll_offset = 0,
         },
     };
 
