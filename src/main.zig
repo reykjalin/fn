@@ -2,6 +2,8 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
+const vsb = @import("./vertical_scroll_bar.zig");
+
 const TAB_REPLACEMENT = "        ";
 
 const Cursor = struct {
@@ -19,6 +21,8 @@ const Editor = struct {
     file: []const u8,
     vertical_scroll_offset: usize,
     horizontal_scroll_offset: usize,
+    vertical_scroll_bar: *vsb.VerticalScrollBar,
+    children: []vxfw.SubSurface,
 
     gpa: std.mem.Allocator,
 
@@ -200,8 +204,10 @@ const Editor = struct {
             rte_widgets[i] = .{ .text = spans.items };
         }
 
+        // Children contains all the RichText widgets and the scrollbar.
+        self.children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len + 1);
+
         // Draw RichText widgets.
-        const children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len);
         for (rte_widgets, 0..) |rte, i| {
             const surface = try rte.widget().draw(ctx);
 
@@ -216,6 +222,20 @@ const Editor = struct {
                 },
             };
         }
+
+        // Draw scrollbar.
+        self.vertical_scroll_bar.total_height = self.lines.items.len;
+        self.vertical_scroll_bar.screen_height = max.height;
+        self.vertical_scroll_bar.scroll_offset = self.vertical_scroll_offset;
+        const surface = try self.vertical_scroll_bar.widget().draw(ctx.withConstraints(
+            .{ .width = 1, .height = 3 },
+            .{ .width = 1, .height = @max(3, max.height) },
+        ));
+
+        self.children[self.children.len - 1] = .{
+            .surface = surface,
+            .origin = .{ .row = 0, .col = max.width - 1 },
+        };
 
         const number_of_tabs_in_line = std.mem.count(
             u8,
@@ -245,7 +265,7 @@ const Editor = struct {
             .size = max,
             .widget = self.widget(),
             .buffer = &.{},
-            .children = children,
+            .children = self.children,
             .focusable = true,
             .cursor = cursor,
             .handles_mouse = true,
@@ -433,6 +453,9 @@ pub fn main() !void {
         try lines.append(line);
     }
 
+    // Allocate scroll bars.
+    const scroll_bar = try allocator.create(vsb.VerticalScrollBar);
+
     // Set initial state.
     fnApp.* = .{
         .gpa = allocator,
@@ -443,6 +466,8 @@ pub fn main() !void {
             .file = "",
             .vertical_scroll_offset = 0,
             .horizontal_scroll_offset = 0,
+            .vertical_scroll_bar = scroll_bar,
+            .children = undefined,
         },
     };
 
@@ -456,6 +481,8 @@ pub fn main() !void {
             l.text.deinit();
         }
         fnApp.editor.lines.deinit();
+
+        allocator.destroy(fnApp.editor.vertical_scroll_bar);
     }
 
     // Run app.
