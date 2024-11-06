@@ -14,6 +14,7 @@ const Line = struct {
 const Editor = struct {
     cursor: Cursor,
     lines: std.ArrayList(Line),
+    file: []const u8,
 
     gpa: std.mem.Allocator,
 
@@ -148,6 +149,20 @@ const Editor = struct {
         };
     }
 
+    pub fn get_all_text(self: *Editor, allocator: std.mem.Allocator) ![]u8 {
+        // NOTE: No need to deinit because we return the value from `.toOwnedSlice()`.
+        var text = std.ArrayList(u8).init(allocator);
+
+        for (self.lines.items, 0..) |line, i| {
+            try text.appendSlice(line.text.items);
+
+            // Add a newline if we're not at the last line.
+            if (i < self.lines.items.len - 1) try text.appendSlice("\n");
+        }
+
+        return text.toOwnedSlice();
+    }
+
     fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         const self: *Editor = @ptrCast(@alignCast(ptr));
         try self.handleEvent(ctx, event);
@@ -161,6 +176,7 @@ const Editor = struct {
 
 const Fn = struct {
     editor: Editor,
+    gpa: std.mem.Allocator,
     children: [1]vxfw.SubSurface = undefined,
 
     pub fn widget(self: *Fn) vxfw.Widget {
@@ -182,6 +198,22 @@ const Fn = struct {
                 if (key.matches('c', .{ .ctrl = true })) {
                     ctx.quit = true;
                     return;
+                }
+
+                if (key.matches('s', .{ .super = true })) {
+                    // If we haven't loaded a file there's nothing to do.
+                    if (self.editor.file.len == 0) return;
+
+                    // FIXME: Add some assertions that the file hasn't changed.
+                    const file = std.fs.cwd().createFile(self.editor.file, .{ .truncate = true }) catch return;
+                    defer file.close();
+
+                    // FIXME: Just use a `Writer` instead of writing a bunch of bytes straight to
+                    //        the file.
+                    const text_to_save = try self.editor.get_all_text(self.gpa);
+                    defer self.gpa.free(text_to_save);
+
+                    try file.writeAll(text_to_save);
                 }
             },
             else => {},
@@ -209,29 +241,94 @@ const Fn = struct {
 };
 
 pub fn main() !void {
+    // Set up allocator.
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
 
+    // Process arguments.
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    // Initialize vaxis app.
     var app = try vxfw.App.init(allocator);
     errdefer app.deinit();
 
+    // Initialize Fönn.
     const fnApp = try allocator.create(Fn);
     defer allocator.destroy(fnApp);
 
     // Set up initial state.
-    const line: Line = .{ .text = std.ArrayList(u8).init(allocator) };
     var lines = std.ArrayList(Line).init(allocator);
-    try lines.append(line);
 
+    // If we have more than 1 argument, use the last argument as the file to open.
+    if (args.len > 1) {
+        const file_path = args[args.len - 1];
+
+        // Open the file to read its contents.
+        if (std.fs.cwd().openFile(file_path, .{ .mode = .read_only })) |file| {
+            defer file.close();
+
+            // Get a buffered reader to read the file.
+            var buf_reader = std.io.bufferedReader(file.reader());
+            const reader = buf_reader.reader();
+
+            // We'll use an arraylist to read line-by-line.
+            var line = std.ArrayList(u8).init(allocator);
+            defer line.deinit();
+
+            const writer = line.writer();
+
+            while (reader.streamUntilDelimiter(writer, '\n', null)) {
+                // Clear the line so we can use it.
+                defer line.clearRetainingCapacity();
+
+                // Move the line contents into a Line struct.
+                var l: Line = .{ .text = std.ArrayList(u8).init(allocator) };
+                try l.text.appendSlice(line.items);
+
+                // Append the line contents to the initial state.
+                try lines.append(l);
+            } else |err| switch (err) {
+                // Handle the last line of the file.
+                error.EndOfStream => {
+                    // Move the line contents into a Line struct.
+                    var l: Line = .{ .text = std.ArrayList(u8).init(allocator) };
+                    try l.text.appendSlice(line.items);
+
+                    // Append the line contents to the initial state.
+                    try lines.append(l);
+                },
+                else => return err,
+            }
+        } else |_| {
+            // We're not interested in doing anything with the errors here, except make sure a line
+            // is initialized.
+            const line: Line = .{ .text = std.ArrayList(u8).init(allocator) };
+            try lines.append(line);
+        }
+    } else {
+        const line: Line = .{ .text = std.ArrayList(u8).init(allocator) };
+        try lines.append(line);
+    }
+
+    // Set initial state.
     fnApp.* = .{
+        .gpa = allocator,
         .editor = .{
             .cursor = .{ .line = 0, .column = 0 },
             .lines = lines,
             .gpa = allocator,
+            .file = "",
         },
     };
+
+    if (args.len > 1) {
+        fnApp.editor.file = args[args.len - 1];
+    }
+
+    // Free fn state.
     defer {
         for (fnApp.editor.lines.items) |l| {
             l.text.deinit();
@@ -239,6 +336,7 @@ pub fn main() !void {
         fnApp.editor.lines.deinit();
     }
 
+    // Run app.
     try app.run(fnApp.widget(), .{});
     app.deinit();
 }
