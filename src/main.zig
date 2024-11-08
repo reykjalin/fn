@@ -456,7 +456,12 @@ pub fn main() !void {
 
     // Allocate scroll bars.
     const scroll_bar = try allocator.create(vsb.VerticalScrollBar);
-    scroll_bar.scroll_up_button = try allocator.create(vxfw.Button);
+    scroll_bar.* = .{
+        .total_height = 0,
+        .screen_height = 0,
+        .scroll_offset = 0,
+        .scroll_up_button = try allocator.create(vxfw.Button),
+    };
     scroll_bar.scroll_up_button.* = .{
         .label = "\u{2191}",
         .userdata = scroll_bar,
