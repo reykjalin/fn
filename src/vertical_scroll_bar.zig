@@ -7,6 +7,7 @@ pub const VerticalScrollBar = struct {
     screen_height: usize,
     scroll_offset: usize,
     scroll_up_button: *vxfw.Button,
+    scroll_down_button: *vxfw.Button,
 
     pub fn widget(self: *VerticalScrollBar) vxfw.Widget {
         return .{
@@ -16,14 +17,14 @@ pub const VerticalScrollBar = struct {
         };
     }
 
-    pub fn on_up_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {
-        std.log.debug("scroll up", .{});
-    }
+    pub fn on_up_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
+
+    pub fn on_down_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
 
     pub fn draw(self: *VerticalScrollBar, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
         const max = ctx.max.size();
 
-        const children = try ctx.arena.alloc(vxfw.SubSurface, 2);
+        const children = try ctx.arena.alloc(vxfw.SubSurface, 3);
 
         // Draw scroll up button.
         const button_surface = try self.scroll_up_button.draw(ctx.withConstraints(
@@ -40,7 +41,7 @@ pub const VerticalScrollBar = struct {
         };
 
         // Draw scroll bar.
-        const scroll_area_height = max.height - 1;
+        const scroll_area_height = max.height - 2;
 
         const scroll_bar_height_f: f64 =
             @as(f64, @floatFromInt(self.screen_height)) /
@@ -73,6 +74,19 @@ pub const VerticalScrollBar = struct {
             .surface = surface,
             .origin = .{
                 .row = 1,
+                .col = 0,
+            },
+        };
+
+        // Draw scroll down button.
+        const down_surf = try self.scroll_down_button.draw(ctx.withConstraints(
+            .{ .width = 1, .height = 1 },
+            .{ .width = 1, .height = 1 },
+        ));
+        children[2] = .{
+            .surface = down_surf,
+            .origin = .{
+                .row = max.height - 1,
                 .col = 0,
             },
         };

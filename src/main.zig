@@ -210,7 +210,10 @@ const Editor = struct {
 
         // Draw RichText widgets.
         for (rte_widgets, 0..) |rte, i| {
-            const surface = try rte.widget().draw(ctx);
+            const surface = try rte.widget().draw(ctx.withConstraints(
+                .{ .width = 1, .height = 1 },
+                .{ .width = max.width - 1, .height = max.height },
+            ));
 
             var row: i17 = @intCast(i);
             row -= @intCast(self.vertical_scroll_offset);
@@ -461,11 +464,17 @@ pub fn main() !void {
         .screen_height = 0,
         .scroll_offset = 0,
         .scroll_up_button = try allocator.create(vxfw.Button),
+        .scroll_down_button = try allocator.create(vxfw.Button),
     };
     scroll_bar.scroll_up_button.* = .{
         .label = "\u{2191}",
         .userdata = scroll_bar,
         .onClick = vsb.VerticalScrollBar.on_up_button_click,
+    };
+    scroll_bar.scroll_down_button.* = .{
+        .label = "\u{2193}",
+        .userdata = scroll_bar,
+        .onClick = vsb.VerticalScrollBar.on_down_button_click,
     };
 
     // Set initial state.
@@ -495,6 +504,7 @@ pub fn main() !void {
         fnApp.editor.lines.deinit();
 
         allocator.destroy(fnApp.editor.vertical_scroll_bar.scroll_up_button);
+        allocator.destroy(fnApp.editor.vertical_scroll_bar.scroll_down_button);
         allocator.destroy(fnApp.editor.vertical_scroll_bar);
     }
 
