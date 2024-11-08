@@ -50,7 +50,10 @@ const Editor = struct {
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         switch (event) {
             .mouse => |mouse| {
-                try ctx.setMouseShape(.text);
+                if (mouse.type == .press and mouse.button == .left) {
+                    try ctx.requestFocus(self.widget());
+                    ctx.consumeAndRedraw();
+                }
 
                 switch (mouse.button) {
                     .wheel_up => {
