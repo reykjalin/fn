@@ -21,6 +21,8 @@ pub const VerticalScrollBar = struct {
 
     pub fn on_down_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
 
+    pub fn handleEvent(_: *VerticalScrollBar, _: *vxfw.EventContext, _: vxfw.Event) anyerror!void {}
+
     pub fn draw(self: *VerticalScrollBar, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
         const max = ctx.max.size();
 
@@ -101,7 +103,10 @@ pub const VerticalScrollBar = struct {
         };
     }
 
-    fn typeErasedEventHandler(_: *anyopaque, _: *vxfw.EventContext, _: vxfw.Event) anyerror!void {}
+    fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+        const self: *VerticalScrollBar = @ptrCast(@alignCast(ptr));
+        try self.handleEvent(ctx, event);
+    }
 
     fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
         const self: *VerticalScrollBar = @ptrCast(@alignCast(ptr));

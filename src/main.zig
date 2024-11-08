@@ -50,6 +50,30 @@ const Editor = struct {
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         switch (event) {
             .mouse => |mouse| {
+                const scroll_bar_origin = self.children[self.children.len -| 1].origin;
+                if (mouse.col == scroll_bar_origin.col) {
+                    return;
+                }
+
+                // Handle mouse pointer shape.
+                const hovered_row = mouse.row + self.vertical_scroll_offset;
+                if (hovered_row < self.lines.items.len) {
+                    const hovered_line = self.lines.items[hovered_row];
+                    const no_of_tabs_in_line = std.mem.count(u8, hovered_line.text.items, "\t");
+                    const hovered_col =
+                        mouse.col -|
+                        ((TAB_REPLACEMENT.len - 1) * no_of_tabs_in_line);
+
+                    if (hovered_col < hovered_line.text.items.len) {
+                        try ctx.setMouseShape(.text);
+                    } else {
+                        try ctx.setMouseShape(.default);
+                    }
+                } else {
+                    try ctx.setMouseShape(.default);
+                }
+
+                // Handle mouse clicks.
                 if (mouse.type == .press and mouse.button == .left) {
                     // Get line bounded to last line.
                     const clicked_row = mouse.row + self.vertical_scroll_offset;
@@ -81,6 +105,7 @@ const Editor = struct {
                     ctx.redraw = true;
                 }
 
+                // Handle scrolling.
                 switch (mouse.button) {
                     .wheel_up => {
                         self.scroll_up(1);
@@ -94,6 +119,7 @@ const Editor = struct {
                 }
             },
             .mouse_leave => try ctx.setMouseShape(.default),
+            .focus_out => try ctx.setMouseShape(.default),
             .key_press => |key| {
                 if (key.matches(vaxis.Key.enter, .{})) {
                     // FIXME: Insert newlines at cursor.
