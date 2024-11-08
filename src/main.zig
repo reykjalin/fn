@@ -51,8 +51,34 @@ const Editor = struct {
         switch (event) {
             .mouse => |mouse| {
                 if (mouse.type == .press and mouse.button == .left) {
+                    // Get line bounded to last line.
+                    const clicked_row = mouse.row + self.vertical_scroll_offset;
+                    const row = if (clicked_row < self.lines.items.len)
+                        clicked_row
+                    else
+                        self.lines.items.len - 1;
+
+                    const clicked_line = self.lines.items[row];
+
+                    // Get column bounded to last column in the clicked line.
+                    const no_of_tabs_in_line = std.mem.count(u8, clicked_line.text.items, "\t");
+                    // There's a net TAB_REPLACEMENT.len - 1 change in the amount of characters for each tab.
+                    const mouse_col_corrected_for_tabs =
+                        mouse.col -|
+                        ((TAB_REPLACEMENT.len - 1) * no_of_tabs_in_line);
+
+                    const col = if (mouse_col_corrected_for_tabs < clicked_line.text.items.len)
+                        mouse_col_corrected_for_tabs
+                    else
+                        clicked_line.text.items.len;
+
+                    self.cursor = .{
+                        .column = col,
+                        .line = row,
+                    };
+
                     try ctx.requestFocus(self.widget());
-                    ctx.consumeAndRedraw();
+                    ctx.redraw = true;
                 }
 
                 switch (mouse.button) {
