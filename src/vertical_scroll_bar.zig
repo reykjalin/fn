@@ -6,6 +6,7 @@ pub const VerticalScrollBar = struct {
     total_height: usize,
     screen_height: usize,
     scroll_offset: usize,
+    scroll_up_button: *vxfw.Button,
 
     pub fn widget(self: *VerticalScrollBar) vxfw.Widget {
         return .{
@@ -15,13 +16,31 @@ pub const VerticalScrollBar = struct {
         };
     }
 
+    pub fn on_up_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {
+        std.log.debug("scroll up", .{});
+    }
+
     pub fn draw(self: *VerticalScrollBar, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
         const max = ctx.max.size();
 
-        const children = try ctx.arena.alloc(vxfw.SubSurface, 1);
+        const children = try ctx.arena.alloc(vxfw.SubSurface, 2);
+
+        // Draw scroll up button.
+        const button_surface = try self.scroll_up_button.draw(ctx.withConstraints(
+            .{ .width = 1, .height = 1 },
+            .{ .width = 1, .height = 1 },
+        ));
+
+        children[0] = .{
+            .surface = button_surface,
+            .origin = .{
+                .row = 0,
+                .col = 0,
+            },
+        };
 
         // Draw scroll bar.
-        const scroll_area_height = max.height;
+        const scroll_area_height = max.height - 1;
 
         const scroll_bar_height_f: f64 =
             @as(f64, @floatFromInt(self.screen_height)) /
@@ -38,7 +57,7 @@ pub const VerticalScrollBar = struct {
         const surface = try vxfw.Surface.init(
             ctx.arena,
             self.widget(),
-            .{ .width = 1, .height = scroll_area_height },
+            .{ .width = 1, .height = scroll_area_height - 1 },
         );
 
         const scrollBarCell: vaxis.Cell = .{
@@ -50,10 +69,10 @@ pub const VerticalScrollBar = struct {
             surface.writeCell(0, @truncate(i), scrollBarCell);
         }
 
-        children[0] = .{
+        children[1] = .{
             .surface = surface,
             .origin = .{
-                .row = 0,
+                .row = 1,
                 .col = 0,
             },
         };
