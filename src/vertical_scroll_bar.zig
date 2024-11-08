@@ -53,7 +53,7 @@ pub const VerticalScrollBar = struct {
         children[0] = .{
             .surface = surface,
             .origin = .{
-                .row = 1,
+                .row = 0,
                 .col = 0,
             },
         };
