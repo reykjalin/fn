@@ -132,8 +132,7 @@ pub const Editor = struct {
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.tab, .{})) {
-                    // FIXME: Insert tabs at cursor.
-                    try self.lines.items[self.cursor.line].text.append('\t');
+                    try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, "\t");
                     self.cursor.column +|= 1;
 
                     // We need to make sure we redraw the widget after changing the text.
