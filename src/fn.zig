@@ -3,12 +3,69 @@ const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
 const editor = @import("./editor.zig");
+const mb = @import("./menu_bar.zig");
 const vsb = @import("./vertical_scroll_bar.zig");
 
 pub const Fn = struct {
     editor: editor.Editor,
+    menu_bar: mb.MenuBar,
     gpa: std.mem.Allocator,
-    children: [1]vxfw.SubSurface = undefined,
+    children: []vxfw.SubSurface,
+
+    pub fn init(self: *Fn) !void {
+        try self.setup_menu_bar();
+    }
+
+    pub fn setup_menu_bar(self: *Fn) !void {
+        const file_menu = try self.gpa.create(mb.Menu);
+        file_menu.* = .{
+            .button = .{
+                .label = "File",
+                .userdata = file_menu,
+                .onClick = mb.Menu.on_click,
+            },
+            .actions = std.ArrayList(*vxfw.Button).init(self.gpa),
+        };
+
+        const open_button = try self.gpa.create(vxfw.Button);
+        open_button.* = .{
+            .label = "Open…  Ctrl+O",
+            .userdata = self,
+            .onClick = Fn.on_open,
+        };
+
+        const save_button = try self.gpa.create(vxfw.Button);
+        save_button.* = .{
+            .label = "Save    Cmd+S",
+            .userdata = self,
+            .onClick = Fn.on_save,
+        };
+
+        const quit_button = try self.gpa.create(vxfw.Button);
+        quit_button.* = .{
+            .label = "Quit   Ctrl+C",
+            .userdata = self,
+            .onClick = Fn.on_quit,
+        };
+
+        try file_menu.actions.append(open_button);
+        try file_menu.actions.append(save_button);
+        try file_menu.actions.append(quit_button);
+
+        try self.menu_bar.menus.append(file_menu);
+    }
+
+    pub fn deinit(self: *Fn) void {
+        for (self.menu_bar.menus.items) |menu| {
+            for (menu.actions.items) |action_button| {
+                self.gpa.destroy(action_button);
+            }
+            menu.actions.deinit();
+
+            self.gpa.destroy(menu);
+        }
+        self.menu_bar.menus.deinit();
+    }
 
     pub fn widget(self: *Fn) vxfw.Widget {
         return .{
@@ -16,6 +73,12 @@ pub const Fn = struct {
             .eventHandler = Fn.typeErasedEventHandler,
             .drawFn = Fn.typeErasedDrawFn,
         };
+    }
+
+    pub fn on_open(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
+    pub fn on_save(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
+    pub fn on_quit(_: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
+        ctx.quit = true;
     }
 
     fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
@@ -55,10 +118,22 @@ pub const Fn = struct {
         const self: *Fn = @ptrCast(@alignCast(ptr));
         const max = ctx.max.size();
 
-        const editor_surface = try self.editor.widget().draw(ctx);
+        const menu_bar_surface = try self.menu_bar.widget().draw(ctx.withConstraints(
+            .{ .width = max.width, .height = max.height },
+            .{ .width = max.width, .height = max.height },
+        ));
+        const editor_surface = try self.editor.widget().draw(ctx.withConstraints(
+            .{ .width = max.width, .height = max.height - 1 },
+            .{ .width = max.width, .height = max.height - 1 },
+        ));
 
         self.children[0] = .{
             .surface = editor_surface,
+            .origin = .{ .row = 1, .col = 0 },
+        };
+        // We need the menus to appear over the editor, so we draw them last.
+        self.children[1] = .{
+            .surface = menu_bar_surface,
             .origin = .{ .row = 0, .col = 0 },
         };
 
@@ -66,7 +141,7 @@ pub const Fn = struct {
             .size = max,
             .widget = self.widget(),
             .buffer = &.{},
-            .children = &self.children,
+            .children = self.children,
             .focusable = false,
         };
     }

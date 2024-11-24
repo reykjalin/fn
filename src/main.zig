@@ -5,6 +5,7 @@ const vxfw = vaxis.vxfw;
 const fonn = @import("./fn.zig");
 const editor = @import("./editor.zig");
 const vsb = @import("./vertical_scroll_bar.zig");
+const mb = @import("./menu_bar.zig");
 
 pub fn main() !void {
     // Set up allocator.
@@ -115,9 +116,16 @@ pub fn main() !void {
         .onClick = vsb.VerticalScrollBar.on_down_button_click,
     };
 
+    const fnApp_children = try allocator.alloc(vxfw.SubSurface, 2);
+    defer allocator.free(fnApp_children);
+
     // Set initial state.
     fnApp.* = .{
         .gpa = allocator,
+        .children = fnApp_children,
+        .menu_bar = .{
+            .menus = std.ArrayList(*mb.Menu).init(allocator),
+        },
         .editor = .{
             .cursor = .{ .line = 0, .column = 0 },
             .lines = lines,
@@ -130,6 +138,8 @@ pub fn main() !void {
         },
     };
 
+    try fnApp.init();
+
     if (args.len > 1) {
         fnApp.editor.file = args[args.len - 1];
     }
@@ -140,6 +150,7 @@ pub fn main() !void {
             l.text.deinit();
         }
         fnApp.editor.lines.deinit();
+        fnApp.deinit();
 
         allocator.destroy(fnApp.editor.vertical_scroll_bar.scroll_up_button);
         allocator.destroy(fnApp.editor.vertical_scroll_bar.scroll_down_button);
