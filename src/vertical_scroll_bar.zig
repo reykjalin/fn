@@ -2,6 +2,8 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
+const c_mocha = @import("./themes/catppuccin-mocha.zig");
+
 pub const VerticalScrollBar = struct {
     total_height: usize,
     screen_height: usize,
@@ -60,8 +62,9 @@ pub const VerticalScrollBar = struct {
         const surface = try vxfw.Surface.init(
             ctx.arena,
             self.widget(),
-            .{ .width = 1, .height = scroll_area_height - 1 },
+            .{ .width = 1, .height = scroll_area_height },
         );
+        @memset(surface.buffer, .{ .style = .{ .bg = c_mocha.surface_0 } });
 
         const scrollBarCell: vaxis.Cell = .{
             .char = .{ .grapheme = " " },

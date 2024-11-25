@@ -7,6 +7,8 @@ const editor = @import("./editor.zig");
 const vsb = @import("./vertical_scroll_bar.zig");
 const mb = @import("./menu_bar.zig");
 
+const c_mocha = @import("./themes/catppuccin-mocha.zig");
+
 pub fn main() !void {
     // Set up allocator.
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -96,6 +98,13 @@ pub fn main() !void {
         try lines.append(line);
     }
 
+    const button_styles: struct {
+        default: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_0 },
+        mouse_down: vaxis.Style = .{ .fg = c_mocha.surface_1, .bg = c_mocha.lavender },
+        hover: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_1 },
+        focus: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.blue },
+    } = .{};
+
     // Allocate scroll bars.
     const scroll_bar = try allocator.create(vsb.VerticalScrollBar);
     scroll_bar.* = .{
@@ -109,11 +118,23 @@ pub fn main() !void {
         .label = "\u{2191}",
         .userdata = scroll_bar,
         .onClick = vsb.VerticalScrollBar.on_up_button_click,
+        .style = .{
+            .default = button_styles.default,
+            .mouse_down = button_styles.mouse_down,
+            .hover = button_styles.hover,
+            .focus = button_styles.focus,
+        },
     };
     scroll_bar.scroll_down_button.* = .{
         .label = "\u{2193}",
         .userdata = scroll_bar,
         .onClick = vsb.VerticalScrollBar.on_down_button_click,
+        .style = .{
+            .default = button_styles.default,
+            .mouse_down = button_styles.mouse_down,
+            .hover = button_styles.hover,
+            .focus = button_styles.focus,
+        },
     };
 
     const fnApp_children = try allocator.alloc(vxfw.SubSurface, 3);

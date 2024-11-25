@@ -53,14 +53,21 @@ pub const Editor = struct {
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         switch (event) {
             .mouse => |mouse| {
-                // 1. If we're hovering the editor the mouse shape should be a cursor.
+                // 1. If the event is over the scrollbar we let the scroll bar handle the event.
+
+                const scroll_bar_origin = self.children[self.children.len - 1].origin;
+                if (mouse.col == scroll_bar_origin.col) {
+                    return self.vertical_scroll_bar.handleEvent(ctx, event);
+                }
+
+                // 2. If we're hovering the editor the mouse shape should be a cursor.
 
                 if (!self.has_mouse) {
                     self.has_mouse = true;
                     try ctx.setMouseShape(.text);
                 }
 
-                // 2. Handle mouse clicks.
+                // 3. Handle mouse clicks.
 
                 if (mouse.type == .press and mouse.button == .left) {
                     // Get line bounded to last line.
@@ -93,7 +100,7 @@ pub const Editor = struct {
                     return ctx.consumeAndRedraw();
                 }
 
-                // 3. Handle scrolling.
+                // 4. Handle scrolling.
 
                 switch (mouse.button) {
                     .wheel_up => {
@@ -262,8 +269,7 @@ pub const Editor = struct {
         }
 
         // Children contains all the RichText widgets and the scrollbar.
-        // self.children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len + 1);
-        self.children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len);
+        self.children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len + 1);
 
         // Draw RichText widgets.
         for (rte_widgets, 0..) |rte, i| {
@@ -288,15 +294,15 @@ pub const Editor = struct {
         self.vertical_scroll_bar.total_height = self.lines.items.len;
         self.vertical_scroll_bar.screen_height = max.height;
         self.vertical_scroll_bar.scroll_offset = self.vertical_scroll_offset;
-        // const surface = try self.vertical_scroll_bar.widget().draw(ctx.withConstraints(
-        //     .{ .width = 1, .height = 3 },
-        //     .{ .width = 1, .height = @max(3, max.height) },
-        // ));
+        const surface = try self.vertical_scroll_bar.widget().draw(ctx.withConstraints(
+            .{ .width = 1, .height = 3 },
+            .{ .width = 1, .height = @max(3, max.height) },
+        ));
 
-        // self.children[self.children.len - 1] = .{
-        //     .surface = surface,
-        //     .origin = .{ .row = 0, .col = max.width - 1 },
-        // };
+        self.children[self.children.len - 1] = .{
+            .surface = surface,
+            .origin = .{ .row = 0, .col = max.width - 1 },
+        };
 
         const number_of_tabs_in_line = std.mem.count(
             u8,
