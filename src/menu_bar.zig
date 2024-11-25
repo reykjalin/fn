@@ -11,6 +11,7 @@ pub const Menu = struct {
         return .{
             .userdata = self,
             .eventHandler = Menu.typeErasedEventHandler,
+            .captureHandler = Menu.typeErasedCaptureHandler,
             .drawFn = Menu.typeErasedDrawFn,
         };
     }
@@ -85,6 +86,19 @@ pub const Menu = struct {
 
             // We need to manually make sure the event is consumed and that we redraw.
             ctx.consumeAndRedraw();
+        }
+    }
+
+    fn typeErasedCaptureHandler(
+        ptr: *anyopaque,
+        ctx: *vxfw.EventContext,
+        event: vxfw.Event,
+    ) anyerror!void {
+        const self: *Menu = @ptrCast(@alignCast(ptr));
+
+        switch (event) {
+            .mouse => |_| try ctx.requestFocus(self.widget()),
+            else => {},
         }
     }
 
