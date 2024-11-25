@@ -327,7 +327,6 @@ pub const Editor = struct {
             .children = self.children,
             .focusable = true,
             .cursor = cursor,
-            .handles_mouse = true,
         };
     }
 

@@ -98,7 +98,6 @@ pub const VerticalScrollBar = struct {
             .widget = self.widget(),
             .buffer = &.{},
             .children = children,
-            .handles_mouse = true,
             .focusable = false,
         };
     }
