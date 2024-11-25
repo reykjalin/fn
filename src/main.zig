@@ -116,7 +116,7 @@ pub fn main() !void {
         .onClick = vsb.VerticalScrollBar.on_down_button_click,
     };
 
-    const fnApp_children = try allocator.alloc(vxfw.SubSurface, 2);
+    const fnApp_children = try allocator.alloc(vxfw.SubSurface, 3);
     defer allocator.free(fnApp_children);
 
     // Set initial state.

@@ -9,9 +9,9 @@ const vsb = @import("./vertical_scroll_bar.zig");
 const c_mocha = @import("./themes/catppuccin-mocha.zig");
 
 const button_styles: struct {
-    default: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_1 },
+    default: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_0 },
     mouse_down: vaxis.Style = .{ .fg = c_mocha.surface_1, .bg = c_mocha.lavender },
-    hover: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_2 },
+    hover: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_1 },
     focus: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.blue },
 } = .{};
 
@@ -35,6 +35,8 @@ pub const Fn = struct {
     }
 
     pub fn setup_menu_bar(self: *Fn) !void {
+        self.menu_bar.style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_0 };
+
         const file_menu = try self.gpa.create(mb.Menu);
         file_menu.* = .{
             .button = .{
@@ -238,7 +240,11 @@ pub const Fn = struct {
         try file.writeAll(text_to_save);
     }
 
-    fn typeErasedCaptureHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+    fn typeErasedCaptureHandler(
+        ptr: *anyopaque,
+        ctx: *vxfw.EventContext,
+        event: vxfw.Event,
+    ) anyerror!void {
         const self: *Fn = @ptrCast(@alignCast(ptr));
         switch (event) {
             .mouse => |mouse| {
@@ -263,7 +269,11 @@ pub const Fn = struct {
         }
     }
 
-    fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+    fn typeErasedEventHandler(
+        ptr: *anyopaque,
+        ctx: *vxfw.EventContext,
+        event: vxfw.Event,
+    ) anyerror!void {
         const self: *Fn = @ptrCast(@alignCast(ptr));
 
         switch (event) {
@@ -284,9 +294,19 @@ pub const Fn = struct {
         }
     }
 
-    fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
+    fn typeErasedDrawFn(
+        ptr: *anyopaque,
+        ctx: vxfw.DrawContext,
+    ) std.mem.Allocator.Error!vxfw.Surface {
         const self: *Fn = @ptrCast(@alignCast(ptr));
         const max = ctx.max.size();
+
+        const bg_surface = try vxfw.Surface.init(
+            ctx.arena,
+            self.widget(),
+            max,
+        );
+        @memset(bg_surface.buffer, .{ .style = .{ .bg = c_mocha.base, .fg = c_mocha.text } });
 
         const menu_bar_surface = try self.menu_bar.widget().draw(ctx.withConstraints(
             .{ .width = max.width, .height = max.height },
@@ -298,11 +318,15 @@ pub const Fn = struct {
         ));
 
         self.children[0] = .{
+            .surface = bg_surface,
+            .origin = .{ .row = 0, .col = 0 },
+        };
+        self.children[1] = .{
             .surface = editor_surface,
             .origin = .{ .row = 1, .col = 0 },
         };
         // We need the menus to appear over the editor, so we draw them last.
-        self.children[1] = .{
+        self.children[2] = .{
             .surface = menu_bar_surface,
             .origin = .{ .row = 0, .col = 0 },
         };

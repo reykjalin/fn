@@ -4,6 +4,8 @@ const vxfw = vaxis.vxfw;
 
 const vsb = @import("./vertical_scroll_bar.zig");
 
+const c_mocha = @import("./themes/catppuccin-mocha.zig");
+
 pub const TAB_REPLACEMENT = "        ";
 
 pub const Cursor = struct {
@@ -250,7 +252,10 @@ pub const Editor = struct {
             const buf = try ctx.arena.alloc(u8, new_size);
             _ = std.mem.replace(u8, l.text.items, "\t", TAB_REPLACEMENT, buf);
 
-            const span: vxfw.RichText.TextSpan = .{ .text = buf };
+            const span: vxfw.RichText.TextSpan = .{
+                .text = buf,
+                .style = .{ .fg = c_mocha.text, .bg = c_mocha.base },
+            };
             try spans.append(span);
 
             rte_widgets[i] = .{ .text = spans.items };
