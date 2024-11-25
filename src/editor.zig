@@ -23,6 +23,7 @@ pub const Editor = struct {
     horizontal_scroll_offset: usize,
     vertical_scroll_bar: *vsb.VerticalScrollBar,
     children: []vxfw.SubSurface,
+    has_mouse: bool = false,
 
     gpa: std.mem.Allocator,
 
@@ -50,30 +51,15 @@ pub const Editor = struct {
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         switch (event) {
             .mouse => |mouse| {
-                // const scroll_bar_origin = self.children[self.children.len -| 1].origin;
-                // if (mouse.col == scroll_bar_origin.col) {
-                //     return;
-                // }
+                // 1. If we're hovering the editor the mouse shape should be a cursor.
 
-                // // Handle mouse pointer shape.
-                // const hovered_row = mouse.row + self.vertical_scroll_offset;
-                // if (hovered_row < self.lines.items.len) {
-                //     const hovered_line = self.lines.items[hovered_row];
-                //     const no_of_tabs_in_line = std.mem.count(u8, hovered_line.text.items, "\t");
-                //     const hovered_col =
-                //         mouse.col -|
-                //         ((TAB_REPLACEMENT.len - 1) * no_of_tabs_in_line);
+                if (!self.has_mouse) {
+                    self.has_mouse = true;
+                    try ctx.setMouseShape(.text);
+                }
 
-                //     if (hovered_col < hovered_line.text.items.len) {
-                //         try ctx.setMouseShape(.text);
-                //     } else {
-                //         try ctx.setMouseShape(.default);
-                //     }
-                // } else {
-                //     try ctx.setMouseShape(.default);
-                // }
+                // 2. Handle mouse clicks.
 
-                // Handle mouse clicks.
                 if (mouse.type == .press and mouse.button == .left) {
                     // Get line bounded to last line.
                     const clicked_row = mouse.row + self.vertical_scroll_offset;
@@ -102,24 +88,35 @@ pub const Editor = struct {
                     };
 
                     try ctx.requestFocus(self.widget());
-                    ctx.redraw = true;
+                    return ctx.consumeAndRedraw();
                 }
 
-                // Handle scrolling.
+                // 3. Handle scrolling.
+
                 switch (mouse.button) {
                     .wheel_up => {
                         self.scroll_up(1);
-                        ctx.consumeAndRedraw();
+                        return ctx.consumeAndRedraw();
                     },
                     .wheel_down => {
                         self.scroll_down(1);
-                        ctx.consumeAndRedraw();
+                        return ctx.consumeAndRedraw();
                     },
                     else => {},
                 }
+
+                // If a mouse event has bubbled all the way up to the editor we want to consume it
+                // so we don't trigger the mouse_leave event.
+                return ctx.consumeEvent();
             },
-            .mouse_leave => try ctx.setMouseShape(.default),
-            .focus_out => try ctx.setMouseShape(.default),
+            .mouse_leave => {
+                self.has_mouse = false;
+                try ctx.setMouseShape(.default);
+            },
+            .focus_out => {
+                self.has_mouse = false;
+                try ctx.setMouseShape(.default);
+            },
             .key_press => |key| {
                 if (key.matches(vaxis.Key.enter, .{})) {
                     // FIXME: Insert newlines at cursor.
