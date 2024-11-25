@@ -6,6 +6,15 @@ const editor = @import("./editor.zig");
 const mb = @import("./menu_bar.zig");
 const vsb = @import("./vertical_scroll_bar.zig");
 
+const c_mocha = @import("./themes/catppuccin-mocha.zig");
+
+const button_styles: struct {
+    default: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_1 },
+    mouse_down: vaxis.Style = .{ .fg = c_mocha.surface_1, .bg = c_mocha.lavender },
+    hover: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.surface_2 },
+    focus: vaxis.Style = .{ .fg = c_mocha.text, .bg = c_mocha.blue },
+} = .{};
+
 pub const Fn = struct {
     editor: editor.Editor,
     menu_bar: mb.MenuBar,
@@ -32,6 +41,12 @@ pub const Fn = struct {
                 .label = " File ",
                 .userdata = file_menu,
                 .onClick = mb.Menu.on_click,
+                .style = .{
+                    .default = button_styles.default,
+                    .mouse_down = button_styles.mouse_down,
+                    .hover = button_styles.hover,
+                    .focus = button_styles.focus,
+                },
             },
             .actions = std.ArrayList(*vxfw.Button).init(self.gpa),
         };
@@ -41,6 +56,12 @@ pub const Fn = struct {
             .label = "Open…  Ctrl+O",
             .userdata = self,
             .onClick = Fn.on_open,
+            .style = .{
+                .default = button_styles.default,
+                .mouse_down = button_styles.mouse_down,
+                .hover = button_styles.hover,
+                .focus = button_styles.focus,
+            },
         };
 
         const save_button = try self.gpa.create(vxfw.Button);
@@ -48,6 +69,12 @@ pub const Fn = struct {
             .label = "Save    Cmd+S",
             .userdata = self,
             .onClick = Fn.on_save,
+            .style = .{
+                .default = button_styles.default,
+                .mouse_down = button_styles.mouse_down,
+                .hover = button_styles.hover,
+                .focus = button_styles.focus,
+            },
         };
 
         const quit_button = try self.gpa.create(vxfw.Button);
@@ -55,6 +82,12 @@ pub const Fn = struct {
             .label = "Quit   Ctrl+C",
             .userdata = self,
             .onClick = Fn.on_quit,
+            .style = .{
+                .default = button_styles.default,
+                .mouse_down = button_styles.mouse_down,
+                .hover = button_styles.hover,
+                .focus = button_styles.focus,
+            },
         };
 
         try file_menu.actions.append(open_button);
@@ -67,6 +100,12 @@ pub const Fn = struct {
                 .label = " Edit ",
                 .userdata = edit_menu,
                 .onClick = mb.Menu.on_click,
+                .style = .{
+                    .default = button_styles.default,
+                    .mouse_down = button_styles.mouse_down,
+                    .hover = button_styles.hover,
+                    .focus = button_styles.focus,
+                },
             },
             .actions = std.ArrayList(*vxfw.Button).init(self.gpa),
         };
@@ -76,6 +115,12 @@ pub const Fn = struct {
             .label = " Copy   Cmd+C ",
             .userdata = self,
             .onClick = Fn.on_copy,
+            .style = .{
+                .default = button_styles.default,
+                .mouse_down = button_styles.mouse_down,
+                .hover = button_styles.hover,
+                .focus = button_styles.focus,
+            },
         };
 
         const paste_button = try self.gpa.create(vxfw.Button);
@@ -83,6 +128,12 @@ pub const Fn = struct {
             .label = " Paste  Cmd+V ",
             .userdata = self,
             .onClick = Fn.on_save,
+            .style = .{
+                .default = button_styles.default,
+                .mouse_down = button_styles.mouse_down,
+                .hover = button_styles.hover,
+                .focus = button_styles.focus,
+            },
         };
 
         try edit_menu.actions.append(copy_button);
