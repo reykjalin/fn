@@ -12,6 +12,15 @@ pub const Fn = struct {
     gpa: std.mem.Allocator,
     children: []vxfw.SubSurface,
 
+    pub fn widget(self: *Fn) vxfw.Widget {
+        return .{
+            .userdata = self,
+            .eventHandler = Fn.typeErasedEventHandler,
+            .drawFn = Fn.typeErasedDrawFn,
+            .captureHandler = Fn.typeErasedCaptureHandler,
+        };
+    }
+
     pub fn init(self: *Fn) !void {
         try self.setup_menu_bar();
     }
@@ -67,18 +76,83 @@ pub const Fn = struct {
         self.menu_bar.menus.deinit();
     }
 
-    pub fn widget(self: *Fn) vxfw.Widget {
-        return .{
-            .userdata = self,
-            .eventHandler = Fn.typeErasedEventHandler,
-            .drawFn = Fn.typeErasedDrawFn,
-        };
-    }
+    pub fn on_open(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
+        if (ptr) |p| {
+            const self: *Fn = @ptrCast(@alignCast(p));
 
-    pub fn on_open(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
-    pub fn on_save(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
+            // Make sure all menus are closed after the button is clicked.
+            self.close_menus();
+
+            // Re-focus the editor.
+            try ctx.requestFocus(self.editor.widget());
+            // Make sure we consume the event and redraw after the menus are closed.
+            ctx.consumeAndRedraw();
+        }
+    }
+    pub fn on_save(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
+        if (ptr) |p| {
+            const self: *Fn = @ptrCast(@alignCast(p));
+
+            try self.save_file();
+
+            // Make sure all menus are closed after the button is clicked.
+            self.close_menus();
+
+            // Re-focus the editor.
+            try ctx.requestFocus(self.editor.widget());
+            // Make sure we consume the event and redraw after the menus are closed.
+            ctx.consumeAndRedraw();
+        }
+    }
     pub fn on_quit(_: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         ctx.quit = true;
+    }
+
+    fn close_menus(self: *Fn) void {
+        for (self.menu_bar.menus.items) |menu| {
+            menu.is_open = false;
+        }
+    }
+
+    fn save_file(self: *Fn) !void {
+        // If we haven't loaded a file there's nothing to do.
+        if (self.editor.file.len == 0) return;
+
+        // FIXME: Add some assertions that the file hasn't changed.
+        const file = std.fs.cwd().createFile(self.editor.file, .{ .truncate = true }) catch return;
+        defer file.close();
+
+        // FIXME: Just use a `Writer` instead of writing a bunch of bytes straight to
+        //        the file.
+        const text_to_save = try self.editor.get_all_text(self.gpa);
+        defer self.gpa.free(text_to_save);
+
+        try file.writeAll(text_to_save);
+    }
+
+    fn typeErasedCaptureHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+        const self: *Fn = @ptrCast(@alignCast(ptr));
+        switch (event) {
+            .mouse => |mouse| {
+                if (mouse.type != .press and mouse.button != .left) return;
+
+                var did_click_a_menu = false;
+                for (self.menu_bar.menus.items) |menu| {
+                    if (menu.button.has_mouse) did_click_a_menu = true;
+
+                    for (menu.actions.items) |action| {
+                        if (action.has_mouse) did_click_a_menu = true;
+                    }
+                }
+
+                // If we clicked outside the menus we close them.
+                if (!did_click_a_menu) {
+                    self.close_menus();
+                    ctx.redraw = true;
+                }
+            },
+            else => {},
+        }
     }
 
     fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
@@ -95,19 +169,7 @@ pub const Fn = struct {
                 }
 
                 if (key.matches('s', .{ .super = true })) {
-                    // If we haven't loaded a file there's nothing to do.
-                    if (self.editor.file.len == 0) return;
-
-                    // FIXME: Add some assertions that the file hasn't changed.
-                    const file = std.fs.cwd().createFile(self.editor.file, .{ .truncate = true }) catch return;
-                    defer file.close();
-
-                    // FIXME: Just use a `Writer` instead of writing a bunch of bytes straight to
-                    //        the file.
-                    const text_to_save = try self.editor.get_all_text(self.gpa);
-                    defer self.gpa.free(text_to_save);
-
-                    try file.writeAll(text_to_save);
+                    try self.save_file();
                 }
             },
             else => {},
