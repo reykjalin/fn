@@ -25,7 +25,6 @@ pub const Editor = struct {
     horizontal_scroll_offset: usize,
     vertical_scroll_bar: *vsb.VerticalScrollBar,
     children: []vxfw.SubSurface,
-    has_mouse: bool = false,
 
     gpa: std.mem.Allocator,
 
@@ -60,14 +59,7 @@ pub const Editor = struct {
                     return self.vertical_scroll_bar.handleEvent(ctx, event);
                 }
 
-                // 2. If we're hovering the editor the mouse shape should be a cursor.
-
-                if (!self.has_mouse) {
-                    self.has_mouse = true;
-                    try ctx.setMouseShape(.text);
-                }
-
-                // 3. Handle mouse clicks.
+                // 2. Handle mouse clicks.
 
                 if (mouse.type == .press and mouse.button == .left) {
                     // Get line bounded to last line.
@@ -100,7 +92,7 @@ pub const Editor = struct {
                     return ctx.consumeAndRedraw();
                 }
 
-                // 4. Handle scrolling.
+                // 3. Handle scrolling.
 
                 switch (mouse.button) {
                     .wheel_up => {
@@ -113,19 +105,9 @@ pub const Editor = struct {
                     },
                     else => {},
                 }
-
-                // If a mouse event has bubbled all the way up to the editor we want to consume it
-                // so we don't trigger the mouse_leave event.
-                return ctx.consumeEvent();
             },
-            .mouse_leave => {
-                self.has_mouse = false;
-                try ctx.setMouseShape(.default);
-            },
-            .focus_out => {
-                self.has_mouse = false;
-                try ctx.setMouseShape(.default);
-            },
+            .mouse_enter => try ctx.setMouseShape(.text),
+            .mouse_leave => try ctx.setMouseShape(.default),
             .key_press => |key| {
                 // 1. Every time we get a key event intended for the editor we make sure to request
                 //    that the editor stay focused.

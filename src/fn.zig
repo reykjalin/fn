@@ -280,6 +280,9 @@ pub const Fn = struct {
             .init => {
                 return ctx.requestFocus(self.editor.widget());
             },
+            .focus_out => {
+                try ctx.setMouseShape(.default);
+            },
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
                     ctx.quit = true;

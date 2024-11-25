@@ -11,7 +11,6 @@ pub const Menu = struct {
         return .{
             .userdata = self,
             .eventHandler = Menu.typeErasedEventHandler,
-            .captureHandler = Menu.typeErasedCaptureHandler,
             .drawFn = Menu.typeErasedDrawFn,
         };
     }
@@ -89,7 +88,7 @@ pub const Menu = struct {
         }
     }
 
-    fn typeErasedCaptureHandler(
+    fn typeErasedEventHandler(
         ptr: *anyopaque,
         ctx: *vxfw.EventContext,
         event: vxfw.Event,
@@ -97,16 +96,10 @@ pub const Menu = struct {
         const self: *Menu = @ptrCast(@alignCast(ptr));
 
         switch (event) {
-            .mouse => |_| try ctx.requestFocus(self.widget()),
+            .mouse_enter => try ctx.requestFocus(self.widget()),
             else => {},
         }
     }
-
-    fn typeErasedEventHandler(
-        _: *anyopaque,
-        _: *vxfw.EventContext,
-        _: vxfw.Event,
-    ) anyerror!void {}
 
     fn typeErasedDrawFn(
         ptr: *anyopaque,
