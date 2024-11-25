@@ -124,7 +124,7 @@ pub fn main() !void {
         .gpa = allocator,
         .children = fnApp_children,
         .menu_bar = .{
-            .menus = std.ArrayList(*mb.Menu).init(allocator),
+            .menus = try allocator.alloc(*mb.Menu, 2),
         },
         .editor = .{
             .cursor = .{ .line = 0, .column = 0 },

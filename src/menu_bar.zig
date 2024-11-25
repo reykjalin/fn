@@ -4,7 +4,7 @@ const vxfw = vaxis.vxfw;
 
 pub const Menu = struct {
     button: vxfw.Button,
-    actions: std.ArrayList(*vxfw.Button),
+    actions: []*vxfw.Button,
     is_open: bool = false,
 
     pub fn widget(self: *Menu) vxfw.Widget {
@@ -20,14 +20,14 @@ pub const Menu = struct {
         // otherwise just the menu button.
         const children = try ctx.arena.alloc(
             vxfw.SubSurface,
-            if (self.is_open) 1 + self.actions.items.len else 1,
+            if (self.is_open) 1 + self.actions.len else 1,
         );
 
         // 1. We need to keep track of the final size of the surface to render it properly.
 
         // Height = number of rows we draw, in other words the menu button + number of actions we
         //          render.
-        const height = if (self.is_open) 1 + self.actions.items.len else 1;
+        const height = if (self.is_open) 1 + self.actions.len else 1;
         // We initialize the width to be at least the width of the menu button. If we need more
         // space for the drop-down panel, that will be set when we draw the actions.
         var width = self.button.label.len;
@@ -47,7 +47,7 @@ pub const Menu = struct {
 
         if (self.is_open) {
             var menu_width: usize = 0;
-            for (self.actions.items) |action| {
+            for (self.actions) |action| {
                 if (menu_width < action.label.len) {
                     menu_width = action.label.len;
                 }
@@ -56,7 +56,7 @@ pub const Menu = struct {
             // Update the total surface width if we need a wider surface.
             if (menu_width > width) width = menu_width;
 
-            for (self.actions.items, 1..) |action, i| {
+            for (self.actions, 1..) |action, i| {
                 const action_surf = try action.widget().draw(ctx.withConstraints(
                     .{ .width = @intCast(action.label.len), .height = 1 },
                     .{ .width = @intCast(menu_width), .height = 1 },
@@ -105,7 +105,7 @@ pub const Menu = struct {
 
 pub const MenuBar = struct {
     children: []vxfw.SubSurface = undefined,
-    menus: std.ArrayList(*Menu),
+    menus: []*Menu,
 
     // Default the background pane color to ANSI Color 7.
     style: vaxis.Cell.Style = .{ .bg = .{ .index = 7 } },
@@ -124,7 +124,7 @@ pub const MenuBar = struct {
 
         // We need children for all the menus, as well as the background bar going across the
         // screen.
-        self.children = try ctx.arena.alloc(vxfw.SubSurface, self.menus.items.len + 1);
+        self.children = try ctx.arena.alloc(vxfw.SubSurface, self.menus.len + 1);
 
         // 1. Draw the background for the menu bar.
 
@@ -144,7 +144,7 @@ pub const MenuBar = struct {
         // 2. Draw the menus.
 
         var current_col: i17 = 0;
-        for (self.menus.items, 1..) |menu, i| {
+        for (self.menus, 1..) |menu, i| {
             const surf = try menu.draw(ctx);
 
             self.children[i] = .{
@@ -169,7 +169,7 @@ pub const MenuBar = struct {
     }
 
     fn close_menus(self: *MenuBar) void {
-        for (self.menus.items) |menu| {
+        for (self.menus) |menu| {
             self.close_menu(menu);
         }
     }
@@ -185,7 +185,7 @@ pub const MenuBar = struct {
             .mouse => |_| {
                 // If a menu is open and we hover over a different menu, open that menu instead.
                 const maybe_open_menu = blk: {
-                    for (self.menus.items) |menu| {
+                    for (self.menus) |menu| {
                         if (menu.is_open) break :blk menu;
                     }
 
@@ -193,7 +193,7 @@ pub const MenuBar = struct {
                 };
 
                 if (maybe_open_menu) |open_menu| {
-                    for (self.menus.items) |menu| {
+                    for (self.menus) |menu| {
                         if (menu.button.has_mouse and menu != open_menu) {
                             self.close_menu(open_menu);
                             menu.is_open = true;

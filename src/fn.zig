@@ -50,7 +50,7 @@ pub const Fn = struct {
                     .focus = button_styles.focus,
                 },
             },
-            .actions = std.ArrayList(*vxfw.Button).init(self.gpa),
+            .actions = try self.gpa.alloc(*vxfw.Button, 3),
         };
 
         const open_button = try self.gpa.create(vxfw.Button);
@@ -92,9 +92,9 @@ pub const Fn = struct {
             },
         };
 
-        try file_menu.actions.append(open_button);
-        try file_menu.actions.append(save_button);
-        try file_menu.actions.append(quit_button);
+        file_menu.actions[0] = open_button;
+        file_menu.actions[1] = save_button;
+        file_menu.actions[2] = quit_button;
 
         const edit_menu = try self.gpa.create(mb.Menu);
         edit_menu.* = .{
@@ -109,7 +109,7 @@ pub const Fn = struct {
                     .focus = button_styles.focus,
                 },
             },
-            .actions = std.ArrayList(*vxfw.Button).init(self.gpa),
+            .actions = try self.gpa.alloc(*vxfw.Button, 2),
         };
 
         const copy_button = try self.gpa.create(vxfw.Button);
@@ -138,23 +138,23 @@ pub const Fn = struct {
             },
         };
 
-        try edit_menu.actions.append(copy_button);
-        try edit_menu.actions.append(paste_button);
+        edit_menu.actions[0] = copy_button;
+        edit_menu.actions[1] = paste_button;
 
-        try self.menu_bar.menus.append(file_menu);
-        try self.menu_bar.menus.append(edit_menu);
+        self.menu_bar.menus[0] = file_menu;
+        self.menu_bar.menus[1] = edit_menu;
     }
 
     pub fn deinit(self: *Fn) void {
-        for (self.menu_bar.menus.items) |menu| {
-            for (menu.actions.items) |action_button| {
+        for (self.menu_bar.menus) |menu| {
+            for (menu.actions) |action_button| {
                 self.gpa.destroy(action_button);
             }
-            menu.actions.deinit();
+            self.gpa.free(menu.actions);
 
             self.gpa.destroy(menu);
         }
-        self.menu_bar.menus.deinit();
+        self.gpa.free(self.menu_bar.menus);
     }
 
     // File menu.
@@ -219,7 +219,7 @@ pub const Fn = struct {
     }
 
     fn close_menus(self: *Fn) void {
-        for (self.menu_bar.menus.items) |menu| {
+        for (self.menu_bar.menus) |menu| {
             menu.is_open = false;
         }
     }
@@ -251,10 +251,10 @@ pub const Fn = struct {
                 if (mouse.type != .press and mouse.button != .left) return;
 
                 var did_click_a_menu = false;
-                for (self.menu_bar.menus.items) |menu| {
+                for (self.menu_bar.menus) |menu| {
                     if (menu.button.has_mouse) did_click_a_menu = true;
 
-                    for (menu.actions.items) |action| {
+                    for (menu.actions) |action| {
                         if (action.has_mouse) did_click_a_menu = true;
                     }
                 }
