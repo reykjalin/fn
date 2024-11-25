@@ -1,6 +1,8 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
+const ltf = @import("log_to_file");
+const builtin = @import("builtin");
 
 const fonn = @import("./fn.zig");
 const editor = @import("./editor.zig");
@@ -8,6 +10,15 @@ const vsb = @import("./vertical_scroll_bar.zig");
 const mb = @import("./menu_bar.zig");
 
 const c_mocha = @import("./themes/catppuccin-mocha.zig");
+
+// Set some scope levels for the vaxis log scopes and log to file in debug mode.
+pub const std_options: std.Options = if (builtin.mode == .Debug) .{
+    .log_scope_levels = &.{
+        .{ .scope = .vaxis, .level = .info },
+        .{ .scope = .vaxis_parser, .level = .info },
+    },
+    .logFn = ltf.log_to_file,
+} else .{};
 
 pub fn main() !void {
     // Set up allocator.
