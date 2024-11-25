@@ -29,7 +29,7 @@ pub const Fn = struct {
         const file_menu = try self.gpa.create(mb.Menu);
         file_menu.* = .{
             .button = .{
-                .label = "File",
+                .label = " File ",
                 .userdata = file_menu,
                 .onClick = mb.Menu.on_click,
             },
@@ -61,7 +61,35 @@ pub const Fn = struct {
         try file_menu.actions.append(save_button);
         try file_menu.actions.append(quit_button);
 
+        const edit_menu = try self.gpa.create(mb.Menu);
+        edit_menu.* = .{
+            .button = .{
+                .label = " Edit ",
+                .userdata = edit_menu,
+                .onClick = mb.Menu.on_click,
+            },
+            .actions = std.ArrayList(*vxfw.Button).init(self.gpa),
+        };
+
+        const copy_button = try self.gpa.create(vxfw.Button);
+        copy_button.* = .{
+            .label = " Copy   Cmd+C ",
+            .userdata = self,
+            .onClick = Fn.on_copy,
+        };
+
+        const paste_button = try self.gpa.create(vxfw.Button);
+        paste_button.* = .{
+            .label = " Paste  Cmd+V ",
+            .userdata = self,
+            .onClick = Fn.on_save,
+        };
+
+        try edit_menu.actions.append(copy_button);
+        try edit_menu.actions.append(paste_button);
+
         try self.menu_bar.menus.append(file_menu);
+        try self.menu_bar.menus.append(edit_menu);
     }
 
     pub fn deinit(self: *Fn) void {
@@ -76,6 +104,7 @@ pub const Fn = struct {
         self.menu_bar.menus.deinit();
     }
 
+    // File menu.
     pub fn on_open(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         if (ptr) |p| {
             const self: *Fn = @ptrCast(@alignCast(p));
@@ -106,6 +135,34 @@ pub const Fn = struct {
     }
     pub fn on_quit(_: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         ctx.quit = true;
+    }
+
+    // Edit menu.
+    pub fn on_copy(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
+        if (ptr) |p| {
+            const self: *Fn = @ptrCast(@alignCast(p));
+
+            // Make sure all menus are closed after the button is clicked.
+            self.close_menus();
+
+            // Re-focus the editor.
+            try ctx.requestFocus(self.editor.widget());
+            // Make sure we consume the event and redraw after the menus are closed.
+            ctx.consumeAndRedraw();
+        }
+    }
+    pub fn on_paste(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
+        if (ptr) |p| {
+            const self: *Fn = @ptrCast(@alignCast(p));
+
+            // Make sure all menus are closed after the button is clicked.
+            self.close_menus();
+
+            // Re-focus the editor.
+            try ctx.requestFocus(self.editor.widget());
+            // Make sure we consume the event and redraw after the menus are closed.
+            ctx.consumeAndRedraw();
+        }
     }
 
     fn close_menus(self: *Fn) void {
