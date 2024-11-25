@@ -220,7 +220,10 @@ pub const MenuBar = struct {
         _: vxfw.Event,
     ) anyerror!void {}
 
-    fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
+    fn typeErasedDrawFn(
+        ptr: *anyopaque,
+        ctx: vxfw.DrawContext,
+    ) std.mem.Allocator.Error!vxfw.Surface {
         const self: *MenuBar = @ptrCast(@alignCast(ptr));
         return try self.draw(ctx);
     }

@@ -73,7 +73,8 @@ pub const Editor = struct {
 
                     // Get column bounded to last column in the clicked line.
                     const no_of_tabs_in_line = std.mem.count(u8, clicked_line.text.items, "\t");
-                    // There's a net TAB_REPLACEMENT.len - 1 change in the amount of characters for each tab.
+                    // There's a net TAB_REPLACEMENT.len - 1 change in the amount of characters for
+                    // each tab.
                     const mouse_col_corrected_for_tabs =
                         mouse.col -|
                         ((TAB_REPLACEMENT.len - 1) * no_of_tabs_in_line);
@@ -126,7 +127,10 @@ pub const Editor = struct {
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.tab, .{})) {
-                    try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, "\t");
+                    try self.lines.items[self.cursor.line].text.insertSlice(
+                        self.cursor.column,
+                        "\t",
+                    );
                     self.cursor.column +|= 1;
 
                     // We need to make sure we redraw the widget after changing the text.
@@ -139,7 +143,8 @@ pub const Editor = struct {
                         // Join lines.
 
                         // Cursor will be moved to the _current_ end of the previous line.
-                        const new_cursor_pos = self.lines.items[self.cursor.line - 1].text.items.len;
+                        const new_cursor_pos =
+                            self.lines.items[self.cursor.line - 1].text.items.len;
 
                         // Append current line contents to previous line.
                         try self.lines.items[self.cursor.line - 1].text.appendSlice(
@@ -154,7 +159,9 @@ pub const Editor = struct {
                         self.cursor.line -= 1;
                         self.cursor.column = new_cursor_pos;
                     } else {
-                        _ = self.lines.items[self.cursor.line].text.orderedRemove(self.cursor.column - 1);
+                        _ = self.lines.items[self.cursor.line].text.orderedRemove(
+                            self.cursor.column - 1,
+                        );
                         self.cursor.column -= 1;
                     }
 
@@ -173,7 +180,9 @@ pub const Editor = struct {
                 } else if (key.matches(vaxis.Key.right, .{})) {
                     const current_line = self.lines.items[self.cursor.line];
 
-                    if (self.cursor.line == self.lines.items.len - 1 and self.cursor.column == current_line.text.items.len) {
+                    if (self.cursor.line == self.lines.items.len - 1 and
+                        self.cursor.column == current_line.text.items.len)
+                    {
                         // Do nothing because we're already at the end of the file.
                         return;
                     } else if (self.cursor.column == current_line.text.items.len) {
@@ -340,12 +349,19 @@ pub const Editor = struct {
         return text.toOwnedSlice();
     }
 
-    fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+    fn typeErasedEventHandler(
+        ptr: *anyopaque,
+        ctx: *vxfw.EventContext,
+        event: vxfw.Event,
+    ) anyerror!void {
         const self: *Editor = @ptrCast(@alignCast(ptr));
         try self.handleEvent(ctx, event);
     }
 
-    fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
+    fn typeErasedDrawFn(
+        ptr: *anyopaque,
+        ctx: vxfw.DrawContext,
+    ) std.mem.Allocator.Error!vxfw.Surface {
         const self: *Editor = @ptrCast(@alignCast(ptr));
         return try self.draw(ctx);
     }

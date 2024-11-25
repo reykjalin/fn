@@ -30,7 +30,9 @@ pub fn main() !void {
         try writer.print("  -v, --version  Print fn help\n", .{});
         std.process.exit(0);
     }
-    if (args.len > 1 and (std.mem.eql(u8, args[1], "--version") or std.mem.eql(u8, args[1], "-v"))) {
+    if (args.len > 1 and
+        (std.mem.eql(u8, args[1], "--version") or std.mem.eql(u8, args[1], "-v")))
+    {
         const writer = std.io.getStdOut().writer();
         try writer.print("0.0.0\n", .{});
         std.process.exit(0);
