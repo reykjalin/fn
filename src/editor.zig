@@ -127,6 +127,12 @@ pub const Editor = struct {
                 try ctx.setMouseShape(.default);
             },
             .key_press => |key| {
+                // 1. Every time we get a key event intended for the editor we make sure to request
+                //    that the editor stay focused.
+                //    NOTE: This fixes an issue where _something_ is stealing focus after the first
+                //          character is typed into the text editor.
+                if (ctx.phase == .at_target) try ctx.requestFocus(self.widget());
+
                 if (key.matches(vaxis.Key.enter, .{})) {
                     // FIXME: Insert newlines at cursor.
                     const line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
