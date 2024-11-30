@@ -8,13 +8,32 @@ const c_mocha = @import("./themes/catppuccin-mocha.zig");
 
 pub const TAB_REPLACEMENT = "        ";
 
+pub const Position = struct {
+    line: usize,
+    column: usize,
+
+    pub fn to_cursor(self: *Position) Cursor {
+        return .{ .line = self.line, .column = self.column };
+    }
+};
+
 pub const Cursor = struct {
     line: usize,
     column: usize,
+
+    pub fn to_position(self: *Cursor) Position {
+        return .{ .line = self.line, .column = self.column };
+    }
 };
 
 pub const Line = struct {
     text: std.ArrayList(u8),
+
+    /// Returns the length of the line.
+    /// TODO: Make this UTF-8 grapheme aware.
+    pub fn len(self: *Line) usize {
+        return self.text.items.len;
+    }
 };
 
 pub const Editor = struct {
@@ -34,6 +53,23 @@ pub const Editor = struct {
             .eventHandler = Editor.typeErasedEventHandler,
             .drawFn = Editor.typeErasedDrawFn,
         };
+    }
+
+    fn typeErasedEventHandler(
+        ptr: *anyopaque,
+        ctx: *vxfw.EventContext,
+        event: vxfw.Event,
+    ) anyerror!void {
+        const self: *Editor = @ptrCast(@alignCast(ptr));
+        try self.handleEvent(ctx, event);
+    }
+
+    fn typeErasedDrawFn(
+        ptr: *anyopaque,
+        ctx: vxfw.DrawContext,
+    ) std.mem.Allocator.Error!vxfw.Surface {
+        const self: *Editor = @ptrCast(@alignCast(ptr));
+        return try self.draw(ctx);
     }
 
     pub fn scroll_up(self: *Editor, number_of_lines: usize) void {
@@ -117,24 +153,12 @@ pub const Editor = struct {
                 if (ctx.phase == .at_target) try ctx.requestFocus(self.widget());
 
                 if (key.matches(vaxis.Key.enter, .{})) {
-                    // 1. Get current line.
-                    var current_line = &self.lines.items[self.cursor.line];
-
-                    // 2. Create a new line struct with the text after the cursor location.
-                    var new_line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
-                    try new_line.text.appendSlice(
-                        current_line.text.items[self.cursor.column..],
-                    );
-
-                    // 3. Insert the new line below the cursor.
-                    try self.lines.insert(self.cursor.line + 1, new_line);
-
-                    // 4. Erase the text after the cursor from the current line.
-                    current_line.text.shrinkRetainingCapacity(self.cursor.column);
-
-                    // 5. Move cursor to the start of the new line.
-                    self.cursor.line +|= 1;
-                    self.cursor.column = 0;
+                    // Insert newline and move cursor to the new line.
+                    try self.insert_new_line_at(self.cursor.to_position());
+                    self.move_cursor_to(.{
+                        .line = self.cursor.line +| 1,
+                        .column = 0,
+                    });
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
@@ -361,20 +385,53 @@ pub const Editor = struct {
         return text.toOwnedSlice();
     }
 
-    fn typeErasedEventHandler(
-        ptr: *anyopaque,
-        ctx: *vxfw.EventContext,
-        event: vxfw.Event,
-    ) anyerror!void {
-        const self: *Editor = @ptrCast(@alignCast(ptr));
-        try self.handleEvent(ctx, event);
+    /// Returns the number of lines in the editor.
+    fn len(self: *Editor) usize {
+        return self.lines.items.len;
     }
 
-    fn typeErasedDrawFn(
-        ptr: *anyopaque,
-        ctx: vxfw.DrawContext,
-    ) std.mem.Allocator.Error!vxfw.Surface {
-        const self: *Editor = @ptrCast(@alignCast(ptr));
-        return try self.draw(ctx);
+    /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
+    fn move_cursor_to(self: *Editor, pos: Position) void {
+        // 1. Assert that the line position is valid.
+        std.debug.assert(pos.line >= 0 and pos.line < self.lines.items.len);
+
+        // 2. Get line at position.
+        var current_line = &self.lines.items[self.cursor.line];
+
+        // 3. Assert that the character position is valid.
+        //    Since you can move the cursor to the end of the current line the length of the current
+        //    line is a valid position.
+        std.debug.assert(pos.column >= 0 and pos.column <= current_line.len());
+
+        // 4. Update cursor position.
+        self.cursor.line = pos.line;
+        self.cursor.column = pos.column;
+    }
+
+    /// Insert a new line behind the character at position `pos`. Asserts that the position is
+    /// valid.
+    fn insert_new_line_at(self: *Editor, pos: Position) !void {
+        // 1. Assert that the line position is valid.
+        std.debug.assert(pos.line >= 0 and pos.line < self.len());
+
+        // 2. Get the line at `pos`.
+        var current_line = &self.lines.items[pos.line];
+
+        // 3. Assert that the character position is valid.
+        //    Since you can insert the new line at the end of the current line the length of the
+        //    line is a valid position.
+        std.debug.assert(pos.column >= 0 and pos.column <= current_line.len());
+
+        // 4. Create a new line struct with the text after the character position.
+        var new_line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
+        try new_line.text.appendSlice(
+            current_line.text.items[pos.column..],
+        );
+
+        // 5. Insert the new line below the line at `pos`.
+        try self.lines.insert(pos.line + 1, new_line);
+
+        // 6. Erase the text after the character position from the line at `pos`.
+        current_line.text.shrinkRetainingCapacity(pos.column);
     }
 };
