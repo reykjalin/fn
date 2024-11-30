@@ -117,10 +117,22 @@ pub const Editor = struct {
                 if (ctx.phase == .at_target) try ctx.requestFocus(self.widget());
 
                 if (key.matches(vaxis.Key.enter, .{})) {
-                    // FIXME: Insert newlines at cursor.
-                    const line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
-                    try self.lines.append(line);
+                    // 1. Get current line.
+                    var current_line = &self.lines.items[self.cursor.line];
 
+                    // 2. Create a new line struct with the text after the cursor location.
+                    var new_line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
+                    try new_line.text.appendSlice(
+                        current_line.text.items[self.cursor.column..],
+                    );
+
+                    // 3. Insert the new line below the cursor.
+                    try self.lines.insert(self.cursor.line + 1, new_line);
+
+                    // 4. Erase the text after the cursor from the current line.
+                    current_line.text.shrinkRetainingCapacity(self.cursor.column);
+
+                    // 5. Move cursor to the start of the new line.
                     self.cursor.line +|= 1;
                     self.cursor.column = 0;
 
