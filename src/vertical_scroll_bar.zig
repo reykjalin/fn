@@ -10,6 +10,7 @@ pub const VerticalScrollBar = struct {
     scroll_offset: usize,
     scroll_up_button: *vxfw.Button,
     scroll_down_button: *vxfw.Button,
+    has_mouse: bool = false,
 
     pub fn widget(self: *VerticalScrollBar) vxfw.Widget {
         return .{
@@ -20,10 +21,39 @@ pub const VerticalScrollBar = struct {
     }
 
     pub fn on_up_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
-
     pub fn on_down_button_click(_: ?*anyopaque, _: *vxfw.EventContext) anyerror!void {}
 
-    pub fn handleEvent(_: *VerticalScrollBar, _: *vxfw.EventContext, _: vxfw.Event) anyerror!void {}
+    pub fn handleEvent(self: *VerticalScrollBar, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+        switch (event) {
+            .mouse => |mouse| {
+                if (mouse.type == .press and mouse.button == .left) {
+                    std.log.debug("scroll: mouse_press", .{});
+                    self.scroll_offset = mouse.row;
+                    ctx.consumeAndRedraw();
+                }
+
+                if (mouse.type == .drag) {
+                    std.log.debug("scroll: mouse_drag", .{});
+                }
+            },
+            .mouse_enter => {
+                self.has_mouse = true;
+                try ctx.setMouseShape(.default);
+                ctx.consumeEvent();
+            },
+            .mouse_leave => {
+                self.has_mouse = false;
+
+                // The mouse can only leave the scrollbar in such a way that it reaches an editor,
+                // or another element that explicitly sets the mouse pointer shape. To make sure
+                // this behavior is preserved we set the pointer shape to `.text` because we expect
+                // to enter the editor, but we **do not** consume the event to make sure it bubbles
+                // up to other components that may want to set a different pointer shape.
+                try ctx.setMouseShape(.text);
+            },
+            else => {},
+        }
+    }
 
     pub fn draw(self: *VerticalScrollBar, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
         const max = ctx.max.size();
