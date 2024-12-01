@@ -172,34 +172,7 @@ pub const Editor = struct {
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.backspace, .{})) {
-                    if (self.cursor.line == 0 and self.cursor.column == 0) {
-                        // There's nothing to erase beyond the start of the file.
-                        return;
-                    } else if (self.cursor.column == 0) {
-                        // Join lines.
-
-                        // Cursor will be moved to the _current_ end of the previous line.
-                        const new_cursor_pos =
-                            self.lines.items[self.cursor.line - 1].text.items.len;
-
-                        // Append current line contents to previous line.
-                        try self.lines.items[self.cursor.line - 1].text.appendSlice(
-                            self.lines.items[self.cursor.line].text.items,
-                        );
-
-                        // Remove current line and free the memory.
-                        const removed_element = self.lines.orderedRemove(self.cursor.line);
-                        removed_element.text.deinit();
-
-                        // Update cursor position.
-                        self.cursor.line -= 1;
-                        self.cursor.column = new_cursor_pos;
-                    } else {
-                        _ = self.lines.items[self.cursor.line].text.orderedRemove(
-                            self.cursor.column - 1,
-                        );
-                        self.cursor.column -= 1;
-                    }
+                    try self.delete_character_before_cursor();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{})) {
@@ -414,6 +387,52 @@ pub const Editor = struct {
     /// Returns the number of lines in the editor.
     fn len(self: *Editor) usize {
         return self.lines.items.len;
+    }
+
+    /// Delete the character before the current cursor.
+    /// TODO: Should this receive a cursor instead? Or a position? We'll likely see once we support
+    ///       multiple selections.
+    fn delete_character_before_cursor(self: *Editor) !void {
+        // 1. If we're at the start of the file, there's nothing to do.
+
+        if (self.cursor.line == 0 and self.cursor.column == 0) {
+            return;
+        }
+
+        // 2. Otherwise, if we're at the start of a line we have to join it with the line before it.
+
+        if (self.cursor.column == 0) {
+            // Join lines.
+
+            // Cursor will be moved to the _current_ end of the previous line.
+            const new_cursor_pos =
+                self.lines.items[self.cursor.line - 1].text.items.len;
+
+            // Append current line contents to previous line.
+            try self.lines.items[self.cursor.line - 1].text.appendSlice(
+                self.lines.items[self.cursor.line].text.items,
+            );
+
+            // Remove current line and free the memory.
+            const removed_element = self.lines.orderedRemove(self.cursor.line);
+            removed_element.text.deinit();
+
+            // Update cursor position.
+            self.cursor.line -= 1;
+            self.cursor.column = new_cursor_pos;
+
+            return;
+        }
+
+        // 3. Finally, if we're not at the start of a line we remove 1 character before the cursor
+        //    and update the cursor position.
+
+        {
+            _ = self.lines.items[self.cursor.line].text.orderedRemove(
+                self.cursor.column - 1,
+            );
+            self.cursor.column -= 1;
+        }
     }
 
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
