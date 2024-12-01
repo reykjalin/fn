@@ -179,6 +179,10 @@ pub const Editor = struct {
                     try self.delete_character_before_cursor();
 
                     ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.left, .{ .alt = true })) {
+                    self.move_to_start_of_word();
+
+                    ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{})) {
                     if (self.cursor.line == 0 and self.cursor.column == 0) {
                         self.cursor = .{ .line = 0, .column = 0 };
@@ -471,6 +475,77 @@ pub const Editor = struct {
         // 3. Move the cursor to the start of the line.
 
         self.cursor.column = 0;
+    }
+
+    fn move_to_start_of_word(self: *Editor) void {
+        // Can't move before the start of the file.
+        if (self.cursor.line == 0 and self.cursor.column == 0) return;
+
+        // 1. If we're at the start of the line we start searching from the end of the previous
+        //    line.
+
+        if (self.cursor.column == 0) {
+            self.cursor.line -|= 1;
+            self.cursor.column = self.lines.items[self.cursor.line].len();
+        }
+
+        var current_line = self.lines.items[self.cursor.line];
+
+        // 2. Find the start of the current word by searching for the nearest whitespace character
+        //    before the cursor.
+
+        const whitespace_before_cursor_idx = std.mem.lastIndexOfAny(
+            u8,
+            current_line.text.items[0..self.cursor.column],
+            " \t", // Tab or space only since newlines aren't in the line array.
+        );
+
+        // 2. If there is no whitespace found we can just move to the start of the line because we
+        //    already checked if we're at the start, meaning that if no whitespace is found the
+        //    current word must extend to the start of the line.
+
+        if (whitespace_before_cursor_idx == null) {
+            self.cursor.column = 0;
+            return;
+        }
+
+        // 3. If the character after this whitespace is different from the character at the current
+        //    position we've found the the new position for the cursor.
+
+        if (whitespace_before_cursor_idx.? + 1 != self.cursor.column) {
+            self.cursor.column = whitespace_before_cursor_idx.? + 1;
+            return;
+        }
+
+        // 4. Otherwise, we were already at the start of a word, so we must search from the end of
+        //    the previous word.
+
+        const end_of_previous_word_idx = std.mem.lastIndexOfNone(
+            u8,
+            current_line.text.items[0..whitespace_before_cursor_idx.?],
+            " \t",
+        );
+
+        // 5. If there is no previous word we have to restart the search from the end of the
+        //    previous line.
+
+        if (end_of_previous_word_idx == null) {
+            self.cursor.line -|= 1;
+            self.cursor.column = self.lines.items[self.cursor.line].len();
+            self.move_to_start_of_word();
+            return;
+        }
+
+        // 6. Otherwise we find the start of the current word.
+
+        const whitespace_before_word_idx = std.mem.lastIndexOfAny(
+            u8,
+            current_line.text.items[0..end_of_previous_word_idx.?],
+            " \t",
+        );
+
+        // If no non-whitespace character is found the start of the current word must be at the start of the line.
+        self.cursor.column = if (whitespace_before_word_idx) |i| i + 1 else 0;
     }
 
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
