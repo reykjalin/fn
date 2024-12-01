@@ -31,7 +31,7 @@ pub const Line = struct {
 
     /// Returns the length of the line.
     /// TODO: Make this UTF-8 grapheme aware.
-    pub fn len(self: *Line) usize {
+    pub fn len(self: *const Line) usize {
         return self.text.items.len;
     }
 };
@@ -385,6 +385,32 @@ pub const Editor = struct {
         return text.toOwnedSlice();
     }
 
+    /// Asserts that the provided position is valid. A position is valid if it's:
+    ///   (1) on one of the lines in the editor; and
+    ///   (2) between the start and the end of that line, inclusive.
+    ///
+    /// Example:
+    ///   the quick brown fox
+    ///   ^        ^         ^
+    ///   |        |         |- end of the line is a valid position because the cursor can be on
+    ///   |        |            either side of the character at any given position.
+    ///   |        |
+    ///   |        |- middle of the line is also valid.
+    ///   |
+    ///   |- start of the line (column == 0) must also be valid.
+    fn assert_position_is_valid(self: *Editor, pos: Position) void {
+        // 1. Assert that the line position is valid.
+        std.debug.assert(pos.line >= 0 and pos.line < self.lines.items.len);
+
+        // 2. Get line at position.
+        const current_line = self.lines.items[self.cursor.line];
+
+        // 3. Assert that the character position is valid.
+        //    Since you can move the cursor to the end of the current line the length of the current
+        //    line is a valid position.
+        std.debug.assert(pos.column >= 0 and pos.column <= current_line.len());
+    }
+
     /// Returns the number of lines in the editor.
     fn len(self: *Editor) usize {
         return self.lines.items.len;
@@ -392,18 +418,8 @@ pub const Editor = struct {
 
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
     fn move_cursor_to(self: *Editor, pos: Position) void {
-        // 1. Assert that the line position is valid.
-        std.debug.assert(pos.line >= 0 and pos.line < self.lines.items.len);
+        self.assert_position_is_valid(pos);
 
-        // 2. Get line at position.
-        var current_line = &self.lines.items[self.cursor.line];
-
-        // 3. Assert that the character position is valid.
-        //    Since you can move the cursor to the end of the current line the length of the current
-        //    line is a valid position.
-        std.debug.assert(pos.column >= 0 and pos.column <= current_line.len());
-
-        // 4. Update cursor position.
         self.cursor.line = pos.line;
         self.cursor.column = pos.column;
     }
@@ -411,27 +427,21 @@ pub const Editor = struct {
     /// Insert a new line behind the character at position `pos`. Asserts that the position is
     /// valid.
     fn insert_new_line_at(self: *Editor, pos: Position) !void {
-        // 1. Assert that the line position is valid.
-        std.debug.assert(pos.line >= 0 and pos.line < self.len());
+        self.assert_position_is_valid(pos);
 
-        // 2. Get the line at `pos`.
+        // 1. Get the line at `pos`.
         var current_line = &self.lines.items[pos.line];
 
-        // 3. Assert that the character position is valid.
-        //    Since you can insert the new line at the end of the current line the length of the
-        //    line is a valid position.
-        std.debug.assert(pos.column >= 0 and pos.column <= current_line.len());
-
-        // 4. Create a new line struct with the text after the character position.
+        // 2. Create a new line struct with the text after the character position.
         var new_line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
         try new_line.text.appendSlice(
             current_line.text.items[pos.column..],
         );
 
-        // 5. Insert the new line below the line at `pos`.
+        // 3. Insert the new line below the line at `pos`.
         try self.lines.insert(pos.line + 1, new_line);
 
-        // 6. Erase the text after the character position from the line at `pos`.
+        // 4. Erase the text after the character position from the line at `pos`.
         current_line.text.shrinkRetainingCapacity(pos.column);
     }
 };
