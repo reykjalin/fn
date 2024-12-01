@@ -171,6 +171,10 @@ pub const Editor = struct {
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.backspace, .{ .super = true })) {
+                    try self.delete_to_start_of_line();
+
+                    ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.backspace, .{})) {
                     try self.delete_character_before_cursor();
 
@@ -433,6 +437,40 @@ pub const Editor = struct {
             );
             self.cursor.column -= 1;
         }
+    }
+
+    /// Delete from the current cursor position to the start of the line.
+    /// TODO: Should this receive a position instead? We'll likely see once we support multiple
+    ///       selections.
+    fn delete_to_start_of_line(self: *Editor) !void {
+        // 1. If we're at the start of the line we just do a regular "erase one character"
+        //    operation because we just want to join the lines around the cursor. We get that for
+        //    free by using the "erase one character" function.
+
+        if (self.cursor.column == 0) {
+            try self.delete_character_before_cursor();
+
+            return;
+        }
+
+        // 2. Otherwise erase from the start of the line to the cursor position.
+
+        var current_line = &self.lines.items[self.cursor.line];
+
+        // We need a copy of the memory because when we clear the current line any pointers will be
+        // invalidated.
+        const current_line_copy = try current_line.text.clone();
+        defer current_line_copy.deinit();
+
+        const remaining_text = current_line_copy.items[self.cursor.column..];
+
+        // Replace the line with the text from the cursor onwards.
+        current_line.text.clearRetainingCapacity();
+        try current_line.text.appendSlice(remaining_text);
+
+        // 3. Move the cursor to the start of the line.
+
+        self.cursor.column = 0;
     }
 
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
