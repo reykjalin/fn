@@ -194,6 +194,10 @@ pub const Editor = struct {
                     }
 
                     ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.right, .{ .alt = true })) {
+                    self.move_to_end_of_word();
+
+                    ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.right, .{})) {
                     const current_line = self.lines.items[self.cursor.line];
 
@@ -475,6 +479,89 @@ pub const Editor = struct {
         // 3. Move the cursor to the start of the line.
 
         self.cursor.column = 0;
+    }
+
+    fn move_to_end_of_word(self: *Editor) void {
+        // Can't move beyond the end of the file.
+        const last_line = self.lines.getLast();
+        if (self.cursor.line >= self.lines.items.len - 1 and
+            self.cursor.column == last_line.len()) return;
+
+        // 1. If we're at the end of the current line we start searching from the start of the next
+        //    line.
+
+        if (self.cursor.column == self.lines.items[self.cursor.line].len()) {
+            // We've already guaranteed we're not at the end of the file so we know another line is
+            // available after the current line.
+            self.cursor.line +|= 1;
+            self.cursor.column = 0;
+        }
+
+        const current_line = self.lines.items[self.cursor.line];
+
+        // 2. Find end of the current word by searching for the nearest whitespace character after
+        //    the cursor.
+
+        const whitespace_after_cursor_idx = std.mem.indexOfAny(
+            u8,
+            current_line.text.items[self.cursor.column..],
+            " \t",
+        );
+
+        // 3. If there's no whitespace found we can move to the end of the line because we've
+        //    already verified that we're not at the end of the current line.
+
+        if (whitespace_after_cursor_idx == null) {
+            self.cursor.column = current_line.len();
+            return;
+        }
+
+        // The actual index of the whitespace needs to take into account where we started searching
+        // from.
+        const whitespace_after_cursor = self.cursor.column + whitespace_after_cursor_idx.?;
+
+        // 4. If the whitespace position is different from the current position we've found the end
+        //    of the current word.
+
+        if (self.cursor.column != whitespace_after_cursor) {
+            self.cursor.column = whitespace_after_cursor;
+            return;
+        }
+
+        // 5. Otherwise we find the start of the next word starting from the whitespace character.
+
+        const start_of_next_word_idx = std.mem.indexOfNone(
+            u8,
+            current_line.text.items[whitespace_after_cursor..],
+            " \t",
+        );
+
+        // 6. If there is no next word we have to restart the search from the start of the next
+        //    line since the line ends in whitespace.
+
+        if (start_of_next_word_idx == null) {
+            self.cursor.line +|= 1;
+            self.cursor.column = 0;
+            self.move_to_end_of_word();
+            return;
+        }
+
+        // 6. Otherwise we continue to search for the end of the current word by looking for the
+        //    next whitespace character.
+
+        // The actual start of the next word nees to take into account where we started searching
+        // from.
+        const start_of_next_word = whitespace_after_cursor + start_of_next_word_idx.?;
+
+        const end_of_next_word_idx = std.mem.indexOfAny(
+            u8,
+            current_line.text.items[start_of_next_word..],
+            " \t",
+        );
+
+        // Update cursor position to just before the whitespace (end of the word), or the end of
+        // the line if no whitespace was found.
+        self.cursor.column = if (end_of_next_word_idx) |i| start_of_next_word + i else current_line.len();
     }
 
     fn move_to_start_of_word(self: *Editor) void {
