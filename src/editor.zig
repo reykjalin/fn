@@ -2,8 +2,6 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
-const vsb = @import("./vertical_scroll_bar.zig");
-
 const c_mocha = @import("./themes/catppuccin-mocha.zig");
 
 pub const TAB_REPLACEMENT = "        ";
@@ -39,13 +37,13 @@ pub const Line = struct {
 pub const Editor = struct {
     cursor: Cursor,
     lines: std.ArrayList(Line),
+    line_widgets: std.ArrayList(vxfw.RichText),
     file: []const u8,
-    vertical_scroll_offset: usize,
-    horizontal_scroll_offset: usize,
-    vertical_scroll_bar: *vsb.VerticalScrollBar,
+    scroll_view: vxfw.ScrollView,
     children: []vxfw.SubSurface,
 
     gpa: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
 
     pub fn widget(self: *Editor) vxfw.Widget {
         return .{
@@ -72,34 +70,24 @@ pub const Editor = struct {
         return try self.draw(ctx);
     }
 
-    pub fn scroll_up(self: *Editor, number_of_lines: usize) void {
-        self.vertical_scroll_offset -|= number_of_lines;
+    pub fn scroll_up(self: *Editor, number_of_lines: u8) void {
+        _ = self.scroll_view.scroll.linesUp(number_of_lines);
     }
 
-    pub fn scroll_down(self: *Editor, number_of_lines: usize) void {
-        self.vertical_scroll_offset +|= number_of_lines;
-
-        // Make the upper bound such that there is alwyas at least 1 line visible.
-        if (self.vertical_scroll_offset > self.lines.items.len -| 1) {
-            self.vertical_scroll_offset = self.lines.items.len -| 1;
-        }
+    pub fn scroll_down(self: *Editor, number_of_lines: u8) void {
+        _ = self.scroll_view.scroll.linesDown(number_of_lines);
     }
 
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         switch (event) {
             .mouse => |mouse| {
-                // 1. If the event is over the scrollbar we let the scroll bar handle the event.
+                if (mouse.type == .press) try ctx.requestFocus(self.widget());
 
-                const scroll_bar_origin = self.children[self.children.len - 1].origin;
-                if (mouse.col == scroll_bar_origin.col) {
-                    return self.vertical_scroll_bar.handleEvent(ctx, event);
-                }
-
-                // 2. Handle mouse clicks.
+                // 1. Handle mouse clicks.
 
                 if (mouse.type == .press and mouse.button == .left) {
                     // Get line bounded to last line.
-                    const clicked_row = mouse.row + self.vertical_scroll_offset;
+                    const clicked_row = mouse.row + self.scroll_view.scroll.top;
                     const row = if (clicked_row < self.lines.items.len)
                         clicked_row
                     else
@@ -115,32 +103,24 @@ pub const Editor = struct {
                         mouse.col -|
                         ((TAB_REPLACEMENT.len - 1) * no_of_tabs_in_line);
 
-                    const col = if (mouse_col_corrected_for_tabs < clicked_line.text.items.len)
-                        mouse_col_corrected_for_tabs
+                    const scroll_view_cursor_offset: usize = if (self.scroll_view.draw_cursor)
+                        2
                     else
-                        clicked_line.text.items.len;
+                        0;
+
+                    const col = if (mouse_col_corrected_for_tabs < clicked_line.text.items.len)
+                        mouse_col_corrected_for_tabs - scroll_view_cursor_offset
+                    else
+                        clicked_line.text.items.len - scroll_view_cursor_offset;
 
                     self.cursor = .{
                         .column = col,
                         .line = row,
                     };
+                    self.scroll_view.cursor = @intCast(row);
 
                     try ctx.requestFocus(self.widget());
                     return ctx.consumeAndRedraw();
-                }
-
-                // 3. Handle scrolling.
-
-                switch (mouse.button) {
-                    .wheel_up => {
-                        self.scroll_up(1);
-                        return ctx.consumeAndRedraw();
-                    },
-                    .wheel_down => {
-                        self.scroll_down(1);
-                        return ctx.consumeAndRedraw();
-                    },
-                    else => {},
                 }
             },
             .mouse_enter => try ctx.setMouseShape(.text),
@@ -160,6 +140,9 @@ pub const Editor = struct {
                         .column = 0,
                     });
 
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.tab, .{})) {
@@ -169,88 +152,87 @@ pub const Editor = struct {
                     );
                     self.cursor.column +|= 1;
 
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.backspace, .{ .super = true })) {
                     try self.delete_to_start_of_line();
 
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.backspace, .{})) {
                     try self.delete_character_before_cursor();
+
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{ .alt = true })) {
                     self.move_to_start_of_word();
 
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{})) {
-                    if (self.cursor.line == 0 and self.cursor.column == 0) {
-                        self.cursor = .{ .line = 0, .column = 0 };
-                    } else if (self.cursor.column == 0) {
-                        self.cursor.line -= 1;
-                        self.cursor.column = self.lines.items[self.cursor.line].text.items.len;
-                    } else {
-                        self.cursor.column -= 1;
-                    }
+                    self.move_cursor_one_column_left();
+
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.right, .{ .alt = true })) {
                     self.move_to_end_of_word();
 
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.right, .{})) {
-                    const current_line = self.lines.items[self.cursor.line];
+                    self.move_cursor_one_column_right();
 
-                    if (self.cursor.line == self.lines.items.len - 1 and
-                        self.cursor.column == current_line.text.items.len)
-                    {
-                        // Do nothing because we're already at the end of the file.
-                        return;
-                    } else if (self.cursor.column == current_line.text.items.len) {
-                        self.cursor.line +|= 1;
-                        self.cursor.column = 0;
-                    } else {
-                        self.cursor.column +|= 1;
-                    }
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.up, .{})) {
-                    if (self.cursor.line == 0) {
-                        self.cursor.column = 0;
-                    } else {
-                        self.cursor.line -= 1;
+                    self.move_cursor_one_line_up();
 
-                        self.cursor.column = @min(
-                            self.lines.items[self.cursor.line].text.items.len,
-                            self.cursor.column,
-                        );
-                    }
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.down, .{})) {
-                    if (self.cursor.line == self.lines.items.len - 1) {
-                        self.cursor.column = self.lines.items[self.cursor.line].text.items.len;
-                    } else {
-                        self.cursor.line +|= 1;
+                    self.move_cursor_one_line_down();
 
-                        self.cursor.column = @min(
-                            self.lines.items[self.cursor.line].text.items.len,
-                            self.cursor.column,
-                        );
-                    }
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches('d', .{ .ctrl = true })) {
                     self.scroll_down(1);
+                    self.move_cursor_one_line_down();
+
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches('u', .{ .ctrl = true })) {
                     self.scroll_up(1);
+                    self.move_cursor_one_line_up();
+
+                    self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
                     try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, t);
                     self.cursor.column +|= 1;
+
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
@@ -258,24 +240,46 @@ pub const Editor = struct {
             },
             else => {},
         }
+
+        try self.update_line_widgets();
     }
 
-    pub fn draw(self: *Editor, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
-        const max = ctx.max.size();
+    /// Re-creates the list of RichText widgets used to render file contents.
+    /// FIXME: Find the right time to call this.
+    /// FIXME: It's probably not very performant to do this on every draw when we have
+    ///        multiple styled spans. When we get to that point we'll want to only modify
+    ///        the spans in the line that's been changed, and do this when the key event is
+    ///        is handled.
+    pub fn update_line_widgets(self: *Editor) !void {
+        // 1. Reset the memory arena.
+        _ = self.arena.reset(.retain_capacity);
+        const allocator = self.arena.allocator();
 
-        // Construct the text spans used to render text in the RichText widget.
-        // FIXME: It's probably not very performant to do this on every draw when we have
-        //        multiple styled spans. When we get to that point we'll want to only modify
-        //        the spans in the line that's been changed, and do this when the key event is
-        //        is handled.
-        const rte_widgets = try ctx.arena.alloc(vxfw.RichText, self.lines.items.len);
-        for (self.lines.items, 0..) |l, i| {
-            var spans = std.ArrayList(vxfw.RichText.TextSpan).init(ctx.arena);
+        // 2. Clear the current widgets.
+
+        self.line_widgets.clearRetainingCapacity();
+
+        // 3. Create a RichText widget for each of the lines in the file.
+
+        for (self.lines.items) |line| {
+            // 4. Create all the spans that will represent the text in the RichText widget.
+
+            var spans = std.ArrayList(vxfw.RichText.TextSpan).init(allocator);
+
+            // We have to make sure widgets for empty lines contain _something_ so they're actually
+            // rendered.
+            if (line.len() == 0) {
+                try spans.append(.{ .text = " " });
+                try self.line_widgets.append(.{ .text = spans.items });
+                continue;
+            }
+
+            // 5. Put the right text in the span.
 
             // FIXME: Replace tabs with something other than 4-spaces during render?
-            const new_size = std.mem.replacementSize(u8, l.text.items, "\t", TAB_REPLACEMENT);
-            const buf = try ctx.arena.alloc(u8, new_size);
-            _ = std.mem.replace(u8, l.text.items, "\t", TAB_REPLACEMENT, buf);
+            const new_size = std.mem.replacementSize(u8, line.text.items, "\t", TAB_REPLACEMENT);
+            const buf = try allocator.alloc(u8, new_size);
+            _ = std.mem.replace(u8, line.text.items, "\t", TAB_REPLACEMENT, buf);
 
             const span: vxfw.RichText.TextSpan = .{
                 .text = buf,
@@ -283,44 +287,42 @@ pub const Editor = struct {
             };
             try spans.append(span);
 
-            rte_widgets[i] = .{ .text = spans.items };
+            // 6. Add the spans to the list of line widgets.
+
+            try self.line_widgets.append(.{
+                .text = spans.items,
+                .softwrap = false,
+            });
         }
+    }
 
-        // Children contains all the RichText widgets and the scrollbar.
-        self.children = try ctx.arena.alloc(vxfw.SubSurface, rte_widgets.len + 1);
+    pub fn editor_line_widget_builder(ptr: *const anyopaque, idx: usize, _: usize) ?vxfw.Widget {
+        const self: *const Editor = @ptrCast(@alignCast(ptr));
 
-        // Draw RichText widgets.
-        for (rte_widgets, 0..) |rte, i| {
-            const surface = try rte.widget().draw(ctx.withConstraints(
-                .{ .width = 1, .height = 1 },
-                .{ .width = max.width - 1, .height = max.height },
-            ));
+        if (idx >= self.line_widgets.items.len) return null;
 
-            var row: i17 = @intCast(i);
-            row -= @intCast(self.vertical_scroll_offset);
+        return self.line_widgets.items[idx].widget();
+    }
 
-            self.children[i] = .{
-                .surface = surface,
-                .origin = .{
-                    .row = row,
-                    .col = 0,
-                },
-            };
-        }
+    pub fn draw(self: *Editor, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
+        const max = ctx.max.size();
 
-        // Draw scrollbar.
-        self.vertical_scroll_bar.total_height = self.lines.items.len;
-        self.vertical_scroll_bar.screen_height = max.height;
-        self.vertical_scroll_bar.scroll_offset = self.vertical_scroll_offset;
-        const surface = try self.vertical_scroll_bar.widget().draw(ctx.withConstraints(
-            .{ .width = 1, .height = 3 },
-            .{ .width = 1, .height = @max(3, max.height) },
-        ));
+        // Children contains the ScrollView with the text in the current file.
+        self.children = try ctx.arena.alloc(vxfw.SubSurface, 1);
 
-        self.children[self.children.len - 1] = .{
-            .surface = surface,
-            .origin = .{ .row = 0, .col = max.width - 1 },
+        // 1. Draw ScrollView with a list of RichText widgets to render the text.
+
+        self.scroll_view.draw_cursor = true;
+
+        var scroll_view: vxfw.SubSurface = .{
+            .origin = .{ .row = 0, .col = 0 },
+            .surface = try self.scroll_view.draw(ctx),
         };
+        scroll_view.surface.focusable = true;
+
+        self.children[0] = scroll_view;
+
+        // 2. Configure the cursor location.
 
         const number_of_tabs_in_line = std.mem.count(
             u8,
@@ -328,16 +330,22 @@ pub const Editor = struct {
             "\t",
         );
 
+        // Extra padding for the scroll view's cursor width, if it's going to be drawn.
+        const scroll_view_cursor_padding: u16 = if (self.scroll_view.draw_cursor) 2 else 0;
+
         const screen_cursor_column =
+            // Our representation of where in the line of text the cursor is.
             self.cursor.column -
+            // Use the right width for all tab characters.
             number_of_tabs_in_line +
-            (TAB_REPLACEMENT.len * number_of_tabs_in_line);
+            (TAB_REPLACEMENT.len * number_of_tabs_in_line) +
+            scroll_view_cursor_padding;
 
         // We only show the cursor if it's actually visible.
         var cursor: ?vxfw.CursorState = null;
-        if (self.cursor.line >= self.vertical_scroll_offset) {
+        if (self.cursor.line >= self.scroll_view.scroll.top) {
             var row: u16 = @truncate(self.cursor.line);
-            row -= @truncate(self.vertical_scroll_offset);
+            row -= @truncate(self.scroll_view.scroll.top);
 
             cursor = .{
                 .row = row,
@@ -493,7 +501,7 @@ pub const Editor = struct {
         if (self.cursor.column == self.lines.items[self.cursor.line].len()) {
             // We've already guaranteed we're not at the end of the file so we know another line is
             // available after the current line.
-            self.cursor.line +|= 1;
+            self.move_cursor_one_line_down();
             self.cursor.column = 0;
         }
 
@@ -540,7 +548,7 @@ pub const Editor = struct {
         //    line since the line ends in whitespace.
 
         if (start_of_next_word_idx == null) {
-            self.cursor.line +|= 1;
+            self.move_cursor_one_line_down();
             self.cursor.column = 0;
             self.move_to_end_of_word();
             return;
@@ -572,7 +580,7 @@ pub const Editor = struct {
         //    line.
 
         if (self.cursor.column == 0) {
-            self.cursor.line -|= 1;
+            self.move_cursor_one_line_up();
             self.cursor.column = self.lines.items[self.cursor.line].len();
         }
 
@@ -617,7 +625,7 @@ pub const Editor = struct {
         //    previous line.
 
         if (end_of_previous_word_idx == null) {
-            self.cursor.line -|= 1;
+            self.move_cursor_one_line_up();
             self.cursor.column = self.lines.items[self.cursor.line].len();
             self.move_to_start_of_word();
             return;
@@ -635,12 +643,102 @@ pub const Editor = struct {
         self.cursor.column = if (whitespace_before_word_idx) |i| i + 1 else 0;
     }
 
+    /// Moves the cursor one line up, while making sure the cursor column position stays valid.
+    fn move_cursor_one_line_up(self: *Editor) void {
+        // 1. If we're already at the first line move the cursor to the start of the line.
+        if (self.cursor.line == 0) {
+            self.cursor.column = 0;
+            return;
+        }
+
+        // 2. Otherwise move the cursor one line up, and make sure the column is valid.
+
+        self.cursor.line -|= 1;
+        self.scroll_view.cursor -|= 1;
+
+        self.cursor.column = @min(
+            self.lines.items[self.cursor.line].text.items.len,
+            self.cursor.column,
+        );
+    }
+
+    /// Moves the cursor one line down, while making sure the cursor column position stays valid.
+    fn move_cursor_one_line_down(self: *Editor) void {
+        // 1. If we're at the end of the file, move cursor to the end of the current line.
+
+        if (self.cursor.line == self.lines.items.len - 1) {
+            self.cursor.column = self.lines.items[self.cursor.line].text.items.len;
+            return;
+        }
+
+        // 2. Otherwise, move the cursor one line down, and make sure the column is valid.
+
+        self.cursor.line +|= 1;
+        self.scroll_view.cursor +|= 1;
+
+        self.cursor.column = @min(
+            self.lines.items[self.cursor.line].text.items.len,
+            self.cursor.column,
+        );
+    }
+
+    /// Move cursor one column right. Wraps the position to the next line if the cursor is already
+    /// at the end of the current line. If the cursor is already and the end of the file this
+    /// function does nothing.
+    fn move_cursor_one_column_right(self: *Editor) void {
+        const current_line = self.lines.items[self.cursor.line];
+
+        // 1. Do nothing if we're at the end of the file.
+
+        if (self.cursor.line == self.lines.items.len - 1 and
+            self.cursor.column == current_line.text.items.len)
+        {
+            return;
+        }
+
+        // 2. If we're at the end of the line, move to the start of the next line.
+
+        if (self.cursor.column == current_line.text.items.len) {
+            self.cursor.column = 0;
+            self.move_cursor_one_line_down();
+
+            return;
+        }
+
+        // 3. Otherwise, move one column right.
+        self.cursor.column +|= 1;
+    }
+
+    /// Move the cursor one column left. Wraps the position to the previous line if the cursor is
+    /// already at the start of the current line. If the cursor is already at the start of the file
+    /// this function does nothing.
+    fn move_cursor_one_column_left(self: *Editor) void {
+        // 1. If we're already at the start of the file, do nothing.
+
+        if (self.cursor.line == 0 and self.cursor.column == 0) return;
+
+        // 2. If we're at the start of the line, move to the end of the previous line.
+
+        if (self.cursor.column == 0) {
+            self.move_cursor_one_line_up();
+            self.cursor.column = self.lines.items[self.cursor.line].text.items.len;
+
+            return;
+        }
+
+        // 3. Otherwise move the cursor one column left.
+
+        self.cursor.column -= 1;
+    }
+
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
     fn move_cursor_to(self: *Editor, pos: Position) void {
         self.assert_position_is_valid(pos);
 
         self.cursor.line = pos.line;
         self.cursor.column = pos.column;
+
+        self.scroll_view.cursor = @intCast(pos.line);
     }
 
     /// Insert a new line behind the character at position `pos`. Asserts that the position is

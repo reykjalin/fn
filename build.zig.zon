@@ -24,8 +24,8 @@
     // internet connectivity.
     .dependencies = .{
         .vaxis = .{
-            .url = "https://github.com/rockorager/libvaxis/archive/refs/heads/vxfw-fix-mouse-and-root-window.zip",
-            .hash = "12201e1c18e19bf3c3b0c72af30ff9521dcda618de4edf4d22332243fc942ba8f8f7",
+            .url = "https://github.com/reykjalin/libvaxis/archive/refs/heads/add/scrollview-widget.zip",
+            .hash = "1220f1b2a35dbc6b3e786f47733184ed0402bfe2d1b8df02d9b689c8c9d40d033300",
         },
         .log_to_file = .{
             .url = "https://git.sr.ht/~reykjalin/log_to_file.zig/archive/1.0.0.tar.gz",

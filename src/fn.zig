@@ -4,7 +4,6 @@ const vxfw = vaxis.vxfw;
 
 const editor = @import("./editor.zig");
 const mb = @import("./menu_bar.zig");
-const vsb = @import("./vertical_scroll_bar.zig");
 
 const c_mocha = @import("./themes/catppuccin-mocha.zig");
 
@@ -16,7 +15,7 @@ const button_styles: struct {
 } = .{};
 
 pub const Fn = struct {
-    editor: editor.Editor,
+    editor: *editor.Editor,
     menu_bar: mb.MenuBar,
     gpa: std.mem.Allocator,
     children: []vxfw.SubSurface,
