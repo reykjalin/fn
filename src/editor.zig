@@ -295,7 +295,7 @@ pub const Editor = struct {
 
         // 3. Create the styles and arrays we need.
 
-        const keywords: [18][]const u8 = .{
+        const keywords: [19][]const u8 = .{
             "defer",
             "pub",
             "const",
@@ -314,6 +314,7 @@ pub const Editor = struct {
             "continue;",
             "struct",
             "return",
+            "return;",
         };
         const default_style: vaxis.Cell.Style = .{ .fg = .default, .bg = c_mocha.base };
         const keyword_style: vaxis.Cell.Style = .{ .fg = c_mocha.mauve, .bg = c_mocha.base };
