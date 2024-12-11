@@ -146,11 +146,16 @@ pub const Editor = struct {
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.tab, .{})) {
+                    const spacing = if (std.mem.eql(u8, ".zig", std.fs.path.extension(self.file)))
+                        "    "
+                    else
+                        "\t";
+
                     try self.lines.items[self.cursor.line].text.insertSlice(
                         self.cursor.column,
-                        "\t",
+                        spacing,
                     );
-                    self.cursor.column +|= 1;
+                    self.cursor.column +|= spacing.len;
 
                     // Make sure the cursor is visible.
                     self.scroll_view.ensureScroll();
