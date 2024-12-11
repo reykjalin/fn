@@ -109,9 +109,9 @@ pub const Editor = struct {
                         0;
 
                     const col = if (mouse_col_corrected_for_tabs < clicked_line.text.items.len)
-                        mouse_col_corrected_for_tabs - scroll_view_cursor_offset
+                        mouse_col_corrected_for_tabs -| scroll_view_cursor_offset
                     else
-                        clicked_line.text.items.len - scroll_view_cursor_offset;
+                        clicked_line.text.items.len -| scroll_view_cursor_offset;
 
                     self.cursor = .{
                         .column = col,
