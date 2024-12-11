@@ -295,7 +295,7 @@ pub const Editor = struct {
 
         // 3. Create the styles and arrays we need.
 
-        const keywords: [16][]const u8 = .{
+        const keywords: [18][]const u8 = .{
             "defer",
             "pub",
             "const",
@@ -312,6 +312,8 @@ pub const Editor = struct {
             "break;",
             "continue",
             "continue;",
+            "struct",
+            "return",
         };
         const default_style: vaxis.Cell.Style = .{ .fg = .default, .bg = c_mocha.base };
         const keyword_style: vaxis.Cell.Style = .{ .fg = c_mocha.mauve, .bg = c_mocha.base };
@@ -372,7 +374,10 @@ pub const Editor = struct {
                     default_style;
 
                 // First add a span for any whitespace leading up to the current symbol.
-                try spans.append(.{ .text = buf[idx .. symbol_it.index - symbol.len], .style = default_style, });
+                try spans.append(.{
+                    .text = buf[idx .. symbol_it.index - symbol.len],
+                    .style = default_style,
+                });
 
                 // Then add the current symbol.
                 try spans.append(.{ .text = symbol, .style = style });
