@@ -274,7 +274,8 @@ pub const Editor = struct {
             else => {},
         }
 
-        try self.update_line_widgets();
+        // Update the line widgets only right before we redraw the text on screen.
+        if (ctx.redraw) try self.update_line_widgets();
     }
 
     /// Re-creates the list of RichText widgets used to render file contents.
