@@ -169,12 +169,18 @@ pub const Editor = struct {
                 } else if (key.matches(vaxis.Key.backspace, .{ .super = true })) {
                     try self.delete_to_start_of_line();
 
+                    // Update active line.
+                    self.scroll_view.cursor = @intCast(self.cursor.line);
+
                     // Make sure the cursor is visible.
                     self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.backspace, .{})) {
                     try self.delete_character_before_cursor();
+
+                    // Update active line.
+                    self.scroll_view.cursor = @intCast(self.cursor.line);
 
                     // Make sure the cursor is visible.
                     self.scroll_view.ensureScroll();
