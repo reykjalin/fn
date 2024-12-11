@@ -37,7 +37,7 @@ pub fn main() !void {
         try writer.print("General options:\n", .{});
         try writer.print("\n", .{});
         try writer.print("  -h, --help     Print fn help\n", .{});
-        try writer.print("  -v, --version  Print fn help\n", .{});
+        try writer.print("  -v, --version  Print fn version\n", .{});
         std.process.exit(0);
     }
     if (args.len > 1 and
