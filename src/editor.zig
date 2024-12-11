@@ -279,6 +279,7 @@ pub const Editor = struct {
     ///        is handled.
     pub fn update_line_widgets(self: *Editor) !void {
         // 1. Reset the memory arena.
+
         _ = self.arena.reset(.retain_capacity);
         const allocator = self.arena.allocator();
 
@@ -286,10 +287,34 @@ pub const Editor = struct {
 
         self.line_widgets.clearRetainingCapacity();
 
-        // 3. Create a RichText widget for each of the lines in the file.
+        // 3. Create the styles and arrays we need.
+
+        const keywords: [16][]const u8 = .{
+            "defer",
+            "pub",
+            "const",
+            "var",
+            "fn",
+            "and",
+            "or",
+            "while",
+            "for",
+            "if",
+            "else",
+            "try",
+            "break",
+            "break;",
+            "continue",
+            "continue;",
+        };
+        const default_style: vaxis.Cell.Style = .{ .fg = .default, .bg = c_mocha.base };
+        const keyword_style: vaxis.Cell.Style = .{ .fg = c_mocha.mauve, .bg = c_mocha.base };
+        const comment_style: vaxis.Cell.Style = .{ .fg = c_mocha.overlay_2, .bg = c_mocha.base };
+
+        // 4. Create a RichText widget for each of the lines in the file.
 
         for (self.lines.items) |line| {
-            // 4. Create all the spans that will represent the text in the RichText widget.
+            // 5. Create all the spans that will represent the text in the RichText widget.
 
             var spans = std.ArrayList(vxfw.RichText.TextSpan).init(allocator);
 
@@ -301,20 +326,57 @@ pub const Editor = struct {
                 continue;
             }
 
-            // 5. Put the right text in the span.
+            // 6. Put the right text in the span.
 
             // FIXME: Replace tabs with something other than 4-spaces during render?
             const new_size = std.mem.replacementSize(u8, line.text.items, "\t", TAB_REPLACEMENT);
             const buf = try allocator.alloc(u8, new_size);
             _ = std.mem.replace(u8, line.text.items, "\t", TAB_REPLACEMENT, buf);
 
-            const span: vxfw.RichText.TextSpan = .{
-                .text = buf,
-                .style = .{ .fg = c_mocha.text, .bg = c_mocha.base },
-            };
-            try spans.append(span);
+            var symbol_it = std.mem.tokenizeAny(
+                u8,
+                buf,
+                " \t",
+            );
 
-            // 6. Add the spans to the list of line widgets.
+            // If line starts with a "//" the entire line is a comment and there's no need to
+            // tokenize the line, it all gets a comment status.
+            if (symbol_it.peek() != null and
+                std.mem.startsWith(u8, "//", symbol_it.peek().?))
+            {
+                try spans.append(.{ .text = buf, .style = comment_style });
+                try self.line_widgets.append(.{ .text = spans.items, .softwrap = false });
+                continue;
+            }
+
+            // Otherwise we tokenize the line to check for keywords or builtins.
+            var idx: usize = 0;
+            while (symbol_it.next()) |symbol| {
+                defer idx = symbol_it.index;
+
+                const has_keyword = blk: for (keywords) |keyword| {
+                    if (std.mem.eql(u8, keyword, symbol)) break :blk true;
+                } else {
+                    break :blk false;
+                };
+
+                const style = if (has_keyword)
+                    keyword_style
+                else
+                    default_style;
+
+                // First add a span for any whitespace leading up to the current symbol.
+                try spans.append(.{ .text = buf[idx .. symbol_it.index - symbol.len], .style = default_style, });
+
+                // Then add the current symbol.
+                try spans.append(.{ .text = symbol, .style = style });
+            } else {
+                // Add an empty span so there's something rendered for lines that only contain
+                // whitespace.
+                try spans.append(.{ .text = " ", .style = default_style });
+            }
+
+            // 7. Add the spans to the list of line widgets.
 
             try self.line_widgets.append(.{
                 .text = spans.items,
