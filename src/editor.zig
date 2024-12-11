@@ -350,9 +350,9 @@ pub const Editor = struct {
             );
 
             // If line starts with a "//" the entire line is a comment and there's no need to
-            // tokenize the line, it all gets a comment status.
+            // tokenize the line, it all gets a comment style.
             if (symbol_it.peek() != null and
-                std.mem.startsWith(u8, "//", symbol_it.peek().?))
+                std.mem.startsWith(u8, symbol_it.peek().?, "//"))
             {
                 try spans.append(.{ .text = buf, .style = comment_style });
                 try self.line_widgets.append(.{ .text = spans.items, .softwrap = false });
