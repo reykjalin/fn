@@ -413,6 +413,7 @@ pub const Editor = struct {
         // 1. Draw ScrollView with a list of RichText widgets to render the text.
 
         self.scroll_view.draw_cursor = true;
+        self.scroll_view.wheel_scroll = 1;
 
         var scroll_view: vxfw.SubSurface = .{
             .origin = .{ .row = 0, .col = 0 },
