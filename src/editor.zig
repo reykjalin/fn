@@ -222,6 +222,24 @@ pub const Editor = struct {
                     self.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.left, .{ .super = true }) or
+                    key.matches('a', .{ .ctrl = true }))
+                {
+                    self.move_cursor_to_start_of_line();
+
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
+                    ctx.consumeAndRedraw();
+                } else if (key.matches(vaxis.Key.right, .{ .super = true }) or
+                    key.matches('e', .{ .ctrl = true }))
+                {
+                    self.move_cursor_to_end_of_line();
+
+                    // Make sure the cursor is visible.
+                    self.scroll_view.ensureScroll();
+
+                    ctx.consumeAndRedraw();
                 } else if (key.matches('d', .{ .ctrl = true })) {
                     self.scroll_down(1);
                     self.move_cursor_one_line_down();
@@ -738,6 +756,17 @@ pub const Editor = struct {
         // 3. Otherwise move the cursor one column left.
 
         self.cursor.column -= 1;
+    }
+
+    /// Moves the cursor to the end of the current line.
+    fn move_cursor_to_end_of_line(self: *Editor) void {
+        const current_line = self.lines.items[self.cursor.line];
+        self.cursor.column = current_line.len();
+    }
+
+    /// Moves the cursor to the start of the current line.
+    fn move_cursor_to_start_of_line(self: *Editor) void {
+        self.cursor.column = 0;
     }
 
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
