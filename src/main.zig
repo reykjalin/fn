@@ -57,58 +57,6 @@ pub fn main() !void {
     defer allocator.destroy(fnApp);
 
     // Set up initial state.
-    var lines = std.ArrayList(editor.Line).init(allocator);
-
-    // If we have more than 1 argument, use the last argument as the file to open.
-    if (args.len > 1) {
-        const file_path = args[args.len - 1];
-
-        // Open the file to read its contents.
-        if (std.fs.cwd().openFile(file_path, .{ .mode = .read_only })) |file| {
-            defer file.close();
-
-            // Get a buffered reader to read the file.
-            var buf_reader = std.io.bufferedReader(file.reader());
-            const reader = buf_reader.reader();
-
-            // We'll use an arraylist to read line-by-line.
-            var line = std.ArrayList(u8).init(allocator);
-            defer line.deinit();
-
-            const writer = line.writer();
-
-            while (reader.streamUntilDelimiter(writer, '\n', null)) {
-                // Clear the line so we can use it.
-                defer line.clearRetainingCapacity();
-
-                // Move the line contents into a Line struct.
-                var l: editor.Line = .{ .text = std.ArrayList(u8).init(allocator) };
-                try l.text.appendSlice(line.items);
-
-                // Append the line contents to the initial state.
-                try lines.append(l);
-            } else |err| switch (err) {
-                // Handle the last line of the file.
-                error.EndOfStream => {
-                    // Move the line contents into a Line struct.
-                    var l: editor.Line = .{ .text = std.ArrayList(u8).init(allocator) };
-                    try l.text.appendSlice(line.items);
-
-                    // Append the line contents to the initial state.
-                    try lines.append(l);
-                },
-                else => return err,
-            }
-        } else |_| {
-            // We're not interested in doing anything with the errors here, except make sure a line
-            // is initialized.
-            const line: editor.Line = .{ .text = std.ArrayList(u8).init(allocator) };
-            try lines.append(line);
-        }
-    } else {
-        const line: editor.Line = .{ .text = std.ArrayList(u8).init(allocator) };
-        try lines.append(line);
-    }
 
     const fnApp_children = try allocator.alloc(vxfw.SubSurface, 3);
     defer allocator.free(fnApp_children);
@@ -118,7 +66,7 @@ pub fn main() !void {
 
     editor_widget.* = .{
         .cursor = .{ .line = 0, .column = 0 },
-        .lines = lines,
+        .lines = std.ArrayList(editor.Line).init(allocator),
         .line_widgets = std.ArrayList(vxfw.RichText).init(allocator),
         .gpa = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
@@ -133,6 +81,15 @@ pub fn main() !void {
         },
         .children = undefined,
     };
+
+    // If we have more than 1 argument, use the last argument as the file to open.
+    if (args.len > 1) {
+        const file_path = args[args.len - 1];
+        try editor_widget.load_file(file_path);
+    } else {
+        // Load an empty file just to initialize the lines correctly.
+        try editor_widget.load_file("");
+    }
 
     // Prepare the widgets used to draw the text on the first render.
     // FIXME: there might be a better way to do this? Or at least a better time to do this.
@@ -149,10 +106,6 @@ pub fn main() !void {
     };
 
     try fnApp.init();
-
-    if (args.len > 1) {
-        fnApp.editor.file = args[args.len - 1];
-    }
 
     // Free fn state.
     defer {

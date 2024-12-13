@@ -70,6 +70,66 @@ pub const Editor = struct {
         return try self.draw(ctx);
     }
 
+    pub fn load_file(self: *Editor, file_path: []const u8) !void {
+        // 1. Reset line storage and open file.
+
+        self.lines.clearAndFree();
+        self.file = "";
+
+        // 2. Open the file to read its contents.
+
+        const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch {
+            // We're not interested in doing anything with the errors here, except make sure a line
+            // is initialized.
+            // FIXME: We should notify the user somehow that opening a file failed.
+            const line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
+            try self.lines.append(line);
+            return;
+        };
+
+        defer file.close();
+
+        // 3. Get a buffered reader to read the file.
+
+        var buf_reader = std.io.bufferedReader(file.reader());
+        const reader = buf_reader.reader();
+
+        // We'll use an arraylist to read line-by-line.
+        var line = std.ArrayList(u8).init(self.gpa);
+        defer line.deinit();
+
+        const writer = line.writer();
+
+        // 4. Read the file line-by-line.
+
+        while (reader.streamUntilDelimiter(writer, '\n', null)) {
+            // Clear the line so we can re-use it.
+            defer line.clearRetainingCapacity();
+
+            // Move the line contents into a Line struct.
+            var l: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
+            try l.text.appendSlice(line.items);
+
+            // Append the line contents to the initial state.
+            try self.lines.append(l);
+        } else |err| switch (err) {
+            // Handle the last line of the file.
+            error.EndOfStream => {
+                // Move the line contents into a Line struct.
+                var l: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
+                try l.text.appendSlice(line.items);
+
+                // Append the line contents to the initial state.
+                try self.lines.append(l);
+            },
+            else => return err,
+        }
+
+        // 5. Update file name.
+
+        self.file = file_path;
+    }
+
     pub fn scroll_up(self: *Editor, number_of_lines: u8) void {
         _ = self.scroll_view.scroll.linesUp(number_of_lines);
     }
