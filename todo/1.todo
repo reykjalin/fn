@@ -1,2 +1,7 @@
-Render line numbers
+Add support for single selection
 editor
+
+* Click and drag via mouse.
+* Double click via mouse.
+* Triple click via mouse.
+* Shift-arrow keys to select text.

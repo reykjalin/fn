@@ -1,7 +1,2 @@
-Add support for single selection
-editor
-
-* Click and drag via mouse.
-* Double click via mouse.
-* Triple click via mouse.
-* Shift-arrow keys to select text.
+Add support for horizontal scrolling
+vaxis
