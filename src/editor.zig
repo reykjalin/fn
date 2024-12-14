@@ -130,6 +130,23 @@ pub const Editor = struct {
         self.file = file_path;
     }
 
+    /// Save the text that's currently being worked on to the open file.
+    pub fn save_file(self: *Editor) !void {
+        // If we're working in a scratch buffer there's nothing to do.
+        // FIXME: Add a pop-up that asks the user if they want to write contents to a file.
+        if (self.file.len == 0) return;
+
+        // FIXME: Add some notification that the file could not be opened to save the file.
+        const file = std.fs.cwd().createFile(self.file, .{ .truncate = true }) catch return;
+        defer file.close();
+
+        // FIXME: Use a `Writer` instead of writing a bunch of bytes straight to the file.
+        const text_to_save = try self.get_all_text(self.gpa);
+        defer self.gpa.free(text_to_save);
+
+        try file.writeAll(text_to_save);
+    }
+
     pub fn scroll_up(self: *Editor, number_of_lines: u8) void {
         _ = self.scroll_view.scroll.linesUp(number_of_lines);
     }

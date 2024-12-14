@@ -224,19 +224,7 @@ pub const Fn = struct {
     }
 
     fn save_file(self: *Fn) !void {
-        // If we haven't loaded a file there's nothing to do.
-        if (self.editor.file.len == 0) return;
-
-        // FIXME: Add some assertions that the file hasn't changed.
-        const file = std.fs.cwd().createFile(self.editor.file, .{ .truncate = true }) catch return;
-        defer file.close();
-
-        // FIXME: Just use a `Writer` instead of writing a bunch of bytes straight to
-        //        the file.
-        const text_to_save = try self.editor.get_all_text(self.gpa);
-        defer self.gpa.free(text_to_save);
-
-        try file.writeAll(text_to_save);
+        try self.editor.save_file();
     }
 
     fn typeErasedCaptureHandler(
