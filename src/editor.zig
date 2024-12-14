@@ -39,7 +39,7 @@ pub const Editor = struct {
     lines: std.ArrayList(Line),
     line_widgets: std.ArrayList(vxfw.RichText),
     file: []const u8,
-    scroll_view: vxfw.ScrollView,
+    scroll_bars: vxfw.ScrollBars,
     children: []vxfw.SubSurface,
 
     gpa: std.mem.Allocator,
@@ -246,15 +246,15 @@ pub const Editor = struct {
         self.cursor.column = @min(self.cursor.column, current_line.len());
 
         // Make sure scroll view cursor is still valid.
-        self.scroll_view.cursor = @intCast(self.cursor.line);
+        self.scroll_bars.scroll_view.cursor = @intCast(self.cursor.line);
     }
 
     pub fn scroll_up(self: *Editor, number_of_lines: u8) void {
-        _ = self.scroll_view.scroll.linesUp(number_of_lines);
+        _ = self.scroll_bars.scroll_view.scroll.linesUp(number_of_lines);
     }
 
     pub fn scroll_down(self: *Editor, number_of_lines: u8) void {
-        _ = self.scroll_view.scroll.linesDown(number_of_lines);
+        _ = self.scroll_bars.scroll_view.scroll.linesDown(number_of_lines);
     }
 
     pub fn handleEvent(self: *Editor, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
@@ -266,7 +266,7 @@ pub const Editor = struct {
 
                 if (mouse.type == .press and mouse.button == .left) {
                     // Get line bounded to last line.
-                    const clicked_row = mouse.row + self.scroll_view.scroll.top;
+                    const clicked_row = mouse.row + self.scroll_bars.scroll_view.scroll.top;
                     const row = if (clicked_row < self.lines.items.len)
                         clicked_row
                     else
@@ -282,12 +282,12 @@ pub const Editor = struct {
                         mouse.col -|
                         ((TAB_REPLACEMENT.len - 1) * no_of_tabs_in_line);
 
-                    const scroll_view_cursor_offset: usize = if (self.scroll_view.draw_cursor)
+                    const scroll_view_cursor_offset: usize = if (self.scroll_bars.scroll_view.draw_cursor)
                         2
                     else
                         0;
 
-                    const max_col_click_allowed = if (self.scroll_view.draw_cursor)
+                    const max_col_click_allowed = if (self.scroll_bars.scroll_view.draw_cursor)
                         clicked_line.text.items.len + 2
                     else
                         clicked_line.text.items.len;
@@ -300,7 +300,7 @@ pub const Editor = struct {
                         .column = col,
                         .line = row,
                     };
-                    self.scroll_view.cursor = @intCast(row);
+                    self.scroll_bars.scroll_view.cursor = @intCast(row);
 
                     try ctx.requestFocus(self.widget());
                     return ctx.consumeAndRedraw();
@@ -317,12 +317,6 @@ pub const Editor = struct {
                 try self.insert_text_before_cursor(pasted_text);
             },
             .key_press => |key| {
-                // 1. Every time we get a key event intended for the editor we make sure to request
-                //    that the editor stay focused.
-                //    NOTE: This fixes an issue where _something_ is stealing focus after the first
-                //          character is typed into the text editor.
-                if (ctx.phase == .at_target) try ctx.requestFocus(self.widget());
-
                 if (key.matches(vaxis.Key.enter, .{})) {
                     // Insert newline and move cursor to the new line.
                     try self.insert_new_line_at(self.cursor.to_position());
@@ -332,7 +326,7 @@ pub const Editor = struct {
                     });
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
@@ -349,7 +343,7 @@ pub const Editor = struct {
                     self.cursor.column +|= spacing.len;
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
@@ -357,62 +351,62 @@ pub const Editor = struct {
                     try self.delete_to_start_of_line();
 
                     // Update active line.
-                    self.scroll_view.cursor = @intCast(self.cursor.line);
+                    self.scroll_bars.scroll_view.cursor = @intCast(self.cursor.line);
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.backspace, .{})) {
                     try self.delete_character_before_cursor();
 
                     // Update active line.
-                    self.scroll_view.cursor = @intCast(self.cursor.line);
+                    self.scroll_bars.scroll_view.cursor = @intCast(self.cursor.line);
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{ .alt = true })) {
                     self.move_to_start_of_word();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{})) {
                     self.move_cursor_one_column_left();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.right, .{ .alt = true })) {
                     self.move_to_end_of_word();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.right, .{})) {
                     self.move_cursor_one_column_right();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.up, .{})) {
                     self.move_cursor_one_line_up();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.down, .{})) {
                     self.move_cursor_one_line_down();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.left, .{ .super = true }) or
@@ -421,7 +415,7 @@ pub const Editor = struct {
                     self.move_cursor_to_start_of_line();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.matches(vaxis.Key.right, .{ .super = true }) or
@@ -430,21 +424,7 @@ pub const Editor = struct {
                     self.move_cursor_to_end_of_line();
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
-
-                    ctx.consumeAndRedraw();
-                } else if (key.matches('d', .{ .ctrl = true })) {
-                    self.scroll_down(1);
-                    self.move_cursor_one_line_down();
-
-                    self.scroll_view.ensureScroll();
-
-                    ctx.consumeAndRedraw();
-                } else if (key.matches('u', .{ .ctrl = true })) {
-                    self.scroll_up(1);
-                    self.move_cursor_one_line_up();
-
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
@@ -453,11 +433,13 @@ pub const Editor = struct {
                     self.cursor.column +|= 1;
 
                     // Make sure the cursor is visible.
-                    self.scroll_view.ensureScroll();
+                    self.scroll_bars.scroll_view.ensureScroll();
 
                     // We need to make sure we redraw the widget after changing the text.
                     ctx.consumeAndRedraw();
                 }
+
+                if (!ctx.consume_event) try self.scroll_bars.scroll_view.handleEvent(ctx, event);
             },
             else => {},
         }
@@ -519,11 +501,13 @@ pub const Editor = struct {
             // We have to make sure widgets for empty lines contain _something_ so they're actually
             // rendered.
             if (line.len() == 0) {
-                const spacing_buf = try allocator.alloc(u8, 101);
+                // Length of the spacing buffer is:
+                // 101 + (length of the box-drawing glyph) = 101 + 3.
+                const spacing_buf = try allocator.alloc(u8, 101 + 3);
                 @memset(spacing_buf, ' ');
-                spacing_buf[100] = '|';
+                std.mem.copyForwards(u8, spacing_buf[100..], "\u{2502}");
                 try spans.append(.{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
-                try self.line_widgets.append(.{ .text = spans.items });
+                try self.line_widgets.append(.{ .text = spans.items, .softwrap = false });
                 continue;
             }
 
@@ -550,10 +534,12 @@ pub const Editor = struct {
 
                 // Then add the bar at column 101, if applicable.
                 if (line.len() < 101) {
-                    const spacing_buf_len = 101 - line.len();
+                    // Length of the spacing buffer is:
+                    // 101 + (length of the box-drawing glyph) - (line length) = 101 + 3 - line.len.
+                    const spacing_buf_len = 101 + 3 - line.len();
                     const spacing_buf = try allocator.alloc(u8, spacing_buf_len);
                     @memset(spacing_buf, ' ');
-                    spacing_buf[spacing_buf_len - 1] = '|';
+                    std.mem.copyForwards(u8, spacing_buf[spacing_buf_len -| 4..], "\u{2502}");
                     try spans.append(.{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
                 }
 
@@ -596,10 +582,14 @@ pub const Editor = struct {
             // 7. Add a red vertical bar at column 101 as a visual aid for long lines.
 
             if (line.len() < 101) {
-                const spacing_buffer_len = @max(101 - idx, 1);
+                // Length of the spacing buffer is:
+                // 101 + (length of the box-drawing glyph) - (index pos) = 101 + 3 - idx
+                // or 3, whichever value is higher. We need at least 3 length to make space for the
+                // box drawing character.
+                const spacing_buffer_len = @max(101 + 3 - idx, 3);
                 const spacing_buffer = try allocator.alloc(u8, spacing_buffer_len);
                 @memset(spacing_buffer, ' ');
-                spacing_buffer[spacing_buffer_len -| 1] = '|';
+                std.mem.copyForwards(u8, spacing_buffer[spacing_buffer_len -| 4..], "\u{2502}");
                 try spans.append(.{ .text = spacing_buffer, .style = .{ .fg = c_mocha.red } });
             }
 
@@ -628,12 +618,12 @@ pub const Editor = struct {
 
         // 1. Draw ScrollView with a list of RichText widgets to render the text.
 
-        self.scroll_view.draw_cursor = true;
-        self.scroll_view.wheel_scroll = 1;
+        self.scroll_bars.scroll_view.item_count = @intCast(self.len());
+        self.scroll_bars.estimated_content_height = @intCast(self.len());
 
         var scroll_view: vxfw.SubSurface = .{
             .origin = .{ .row = 0, .col = 0 },
-            .surface = try self.scroll_view.draw(ctx),
+            .surface = try self.scroll_bars.draw(ctx),
         };
         scroll_view.surface.focusable = true;
 
@@ -648,7 +638,7 @@ pub const Editor = struct {
         );
 
         // Extra padding for the scroll view's cursor width, if it's going to be drawn.
-        const scroll_view_cursor_padding: u16 = if (self.scroll_view.draw_cursor) 2 else 0;
+        const scroll_view_cursor_padding: u16 = if (self.scroll_bars.scroll_view.draw_cursor) 2 else 0;
 
         const screen_cursor_column =
             // Our representation of where in the line of text the cursor is.
@@ -660,9 +650,9 @@ pub const Editor = struct {
 
         // We only show the cursor if it's actually visible.
         var cursor: ?vxfw.CursorState = null;
-        if (self.cursor.line >= self.scroll_view.scroll.top) {
+        if (self.cursor.line >= self.scroll_bars.scroll_view.scroll.top) {
             var row: u16 = @truncate(self.cursor.line);
-            row -= @truncate(self.scroll_view.scroll.top);
+            row -= @truncate(self.scroll_bars.scroll_view.scroll.top);
 
             cursor = .{
                 .row = row,
@@ -747,7 +737,7 @@ pub const Editor = struct {
 
             self.cursor.line +|= 1;
             self.cursor.column = 0;
-            self.scroll_view.cursor = @intCast(self.cursor.line);
+            self.scroll_bars.scroll_view.cursor = @intCast(self.cursor.line);
         }
 
         // 5. Update the line widgets.
@@ -1004,7 +994,7 @@ pub const Editor = struct {
         // 2. Otherwise move the cursor one line up, and make sure the column is valid.
 
         self.cursor.line -|= 1;
-        self.scroll_view.cursor -|= 1;
+        self.scroll_bars.scroll_view.cursor -|= 1;
 
         self.cursor.column = @min(
             self.lines.items[self.cursor.line].text.items.len,
@@ -1024,7 +1014,7 @@ pub const Editor = struct {
         // 2. Otherwise, move the cursor one line down, and make sure the column is valid.
 
         self.cursor.line +|= 1;
-        self.scroll_view.cursor +|= 1;
+        self.scroll_bars.scroll_view.cursor +|= 1;
 
         self.cursor.column = @min(
             self.lines.items[self.cursor.line].text.items.len,
@@ -1099,7 +1089,7 @@ pub const Editor = struct {
         self.cursor.line = pos.line;
         self.cursor.column = pos.column;
 
-        self.scroll_view.cursor = @intCast(pos.line);
+        self.scroll_bars.scroll_view.cursor = @intCast(pos.line);
     }
 
     /// Insert a new line behind the character at position `pos`. Asserts that the position is

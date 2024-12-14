@@ -24,8 +24,8 @@
     // internet connectivity.
     .dependencies = .{
         .vaxis = .{
-            .url = "https://github.com/reykjalin/libvaxis/archive/refs/heads/add/scrollview-widget.zip",
-            .hash = "1220f1b2a35dbc6b3e786f47733184ed0402bfe2d1b8df02d9b689c8c9d40d033300",
+            .url = "git+https://github.com/rockorager/libvaxis#a41d3d8cea32bf61129c9b3f6107de7f4ef80b7b",
+            .hash = "1220720439ad22e2846a11a6be96a5d13bd38bf1739b1557989141d712cc04454520",
         },
         .log_to_file = .{
             .url = "https://git.sr.ht/~reykjalin/log_to_file.zig/archive/1.0.0.tar.gz",

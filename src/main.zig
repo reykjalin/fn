@@ -71,16 +71,19 @@ pub fn main() !void {
         .gpa = allocator,
         .arena = std.heap.ArenaAllocator.init(allocator),
         .file = "",
-        .scroll_view = .{
-            .children = .{
-                .builder = .{
-                    .userdata = editor_widget,
-                    .buildFn = editor.Editor.editor_line_widget_builder,
+        .scroll_bars = .{
+            .scroll_view = .{
+                .children = .{
+                    .builder = .{
+                        .userdata = editor_widget,
+                        .buildFn = editor.Editor.editor_line_widget_builder,
+                    },
                 },
             },
         },
         .children = undefined,
     };
+    editor_widget.scroll_bars.scroll_view.wheel_scroll = 1;
 
     // If we have more than 1 argument, use the last argument as the file to open.
     if (args.len > 1) {
