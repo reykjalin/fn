@@ -391,7 +391,10 @@ pub const Editor = struct {
             // We have to make sure widgets for empty lines contain _something_ so they're actually
             // rendered.
             if (line.len() == 0) {
-                try spans.append(.{ .text = " " });
+                const spacing_buf = try allocator.alloc(u8, 101);
+                @memset(spacing_buf, ' ');
+                spacing_buf[100] = '|';
+                try spans.append(.{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
                 try self.line_widgets.append(.{ .text = spans.items });
                 continue;
             }
@@ -414,7 +417,18 @@ pub const Editor = struct {
             if (symbol_it.peek() != null and
                 std.mem.startsWith(u8, symbol_it.peek().?, "//"))
             {
+                // First add the comment text.
                 try spans.append(.{ .text = buf, .style = comment_style });
+
+                // Then add the bar at column 101, if applicable.
+                if (line.len() < 101) {
+                    const spacing_buf_len = 101 - line.len();
+                    const spacing_buf = try allocator.alloc(u8, spacing_buf_len);
+                    @memset(spacing_buf, ' ');
+                    spacing_buf[spacing_buf_len - 1] = '|';
+                    try spans.append(.{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
+                }
+
                 try self.line_widgets.append(.{ .text = spans.items, .softwrap = false });
                 continue;
             }
@@ -446,10 +460,22 @@ pub const Editor = struct {
             } else {
                 // Add an empty span so there's something rendered for lines that only contain
                 // whitespace.
-                try spans.append(.{ .text = " ", .style = default_style });
+                if (idx == 0) {
+                    try spans.append(.{ .text = "" });
+                }
             }
 
-            // 7. Add the spans to the list of line widgets.
+            // 7. Add a red vertical bar at column 101 as a visual aid for long lines.
+
+            if (line.len() < 101) {
+                const spacing_buffer_len = @max(101 - idx, 1);
+                const spacing_buffer = try allocator.alloc(u8, spacing_buffer_len);
+                @memset(spacing_buffer, ' ');
+                spacing_buffer[spacing_buffer_len -| 1] = '|';
+                try spans.append(.{ .text = spacing_buffer, .style = .{ .fg = c_mocha.red } });
+            }
+
+            // 8. Add the spans to the list of line widgets.
 
             try self.line_widgets.append(.{
                 .text = spans.items,
@@ -732,7 +758,10 @@ pub const Editor = struct {
 
         // Update cursor position to just before the whitespace (end of the word), or the end of
         // the line if no whitespace was found.
-        self.cursor.column = if (end_of_next_word_idx) |i| start_of_next_word + i else current_line.len();
+        self.cursor.column = if (end_of_next_word_idx) |i|
+            start_of_next_word + i
+        else
+            current_line.len();
     }
 
     fn move_to_start_of_word(self: *Editor) void {
@@ -802,7 +831,8 @@ pub const Editor = struct {
             " \t",
         );
 
-        // If no non-whitespace character is found the start of the current word must be at the start of the line.
+        // If no non-whitespace character is found the start of the current word must be at the
+        // start of the line.
         self.cursor.column = if (whitespace_before_word_idx) |i| i + 1 else 0;
     }
 
