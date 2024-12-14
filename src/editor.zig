@@ -308,6 +308,14 @@ pub const Editor = struct {
             },
             .mouse_enter => try ctx.setMouseShape(.text),
             .mouse_leave => try ctx.setMouseShape(.default),
+            .paste => |pasted_text| {
+                defer self.gpa.free(pasted_text);
+
+                // FIXME: I don't actually know if this works. I can't trigger the paste event from
+                //        Ghostty.
+                std.log.debug("received paste: '{s}'", .{pasted_text});
+                try self.insert_text_before_cursor(pasted_text);
+            },
             .key_press => |key| {
                 // 1. Every time we get a key event intended for the editor we make sure to request
                 //    that the editor stay focused.
@@ -440,6 +448,7 @@ pub const Editor = struct {
 
                     ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
+                    std.log.debug("inserting text: '{s}'", .{t});
                     try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, t);
                     self.cursor.column +|= 1;
 
@@ -715,6 +724,35 @@ pub const Editor = struct {
     /// Returns the number of lines in the editor.
     fn len(self: *Editor) usize {
         return self.lines.items.len;
+    }
+
+    /// Insert the provided text before the current cursor.
+    fn insert_text_before_cursor(self: *Editor, text: []const u8) !void {
+        var it = std.mem.tokenizeScalar(u8, text, '\n');
+
+        while (it.next()) |line| {
+            // 1. Insert the text at the current cursor position.
+
+            try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, line);
+
+            // 2. Update the cursor position such that it is after the inserted text.
+
+            self.cursor.column +|= line.len;
+
+            // 3. Add a new line after the inserted text.
+
+            try self.insert_new_line_at(self.cursor.to_position());
+
+            // 4. Move the cursor to the start of the new line.
+
+            self.cursor.line +|= 1;
+            self.cursor.column = 0;
+            self.scroll_view.cursor = @intCast(self.cursor.line);
+        }
+
+        // 5. Update the line widgets.
+
+        try self.update_line_widgets();
     }
 
     /// Delete the character before the current cursor.
