@@ -73,6 +73,10 @@ pub const Editor = struct {
     pub fn load_file(self: *Editor, file_path: []const u8) !void {
         // 1. Reset line storage and open file.
 
+        for (self.lines.items) |line| {
+            line.text.deinit();
+        }
+
         self.lines.clearAndFree();
         self.file = "";
 
@@ -136,15 +140,113 @@ pub const Editor = struct {
         // FIXME: Add a pop-up that asks the user if they want to write contents to a file.
         if (self.file.len == 0) return;
 
+        // 1. Get the text from the buffer.
+
+        // FIXME: Use a `Writer` instead of writing a bunch of bytes straight to the file.
+        const text_to_format = try self.get_all_text(self.gpa);
+        defer self.gpa.free(text_to_format);
+
+        // 2. Open the file we're going to save to. Create it if it doesn't exist. Make sure file is
+        //    is truncated just in case the text from the buffer is shorter than what's currently in
+        //    in the file.
+
         // FIXME: Add some notification that the file could not be opened to save the file.
         const file = std.fs.cwd().createFile(self.file, .{ .truncate = true }) catch return;
         defer file.close();
 
-        // FIXME: Use a `Writer` instead of writing a bunch of bytes straight to the file.
-        const text_to_save = try self.get_all_text(self.gpa);
-        defer self.gpa.free(text_to_save);
+        // 3. If we're not in a zig file we don't run `zig fmt`.
 
-        try file.writeAll(text_to_save);
+        if (!std.mem.eql(u8, std.fs.path.extension(self.file), ".zig")) {
+            std.log.debug("Saving to non-zig file, skipping autoformat", .{});
+            try file.writeAll(text_to_format);
+            return;
+        }
+
+        // 4. Otherwise start `zig fmt` in a child process.
+
+        var fmt_proc = std.process.Child.init(
+            &.{ "zig", "fmt", "--stdin" },
+            self.gpa,
+        );
+        fmt_proc.stdin_behavior = .Pipe;
+        fmt_proc.stdout_behavior = .Pipe;
+        fmt_proc.stderr_behavior = .Pipe;
+
+        fmt_proc.spawn() catch {
+            std.log.debug("failed to start zig fmt process", .{});
+            try file.writeAll(text_to_format);
+            return;
+        };
+
+        // FIXME: is this overly careful?
+        if (fmt_proc.stdin == null) {
+            std.log.debug("the zig fmt process didn't get a stdin file descriptor", .{});
+            _ = try fmt_proc.kill();
+            try file.writeAll(text_to_format);
+            return;
+        }
+        const stdin: std.fs.File = fmt_proc.stdin.?;
+
+        // 5. Pass text buffer contents to `zig fmt` through stdin.
+
+        try stdin.writeAll(text_to_format);
+        stdin.close();
+        fmt_proc.stdin = null;
+
+        // 6. Get the output from `zig fmt`.
+
+        var stdout = std.ArrayList(u8).init(self.gpa);
+        var stderr = std.ArrayList(u8).init(self.gpa);
+        defer stdout.deinit();
+        defer stderr.deinit();
+
+        fmt_proc.collectOutput(&stdout, &stderr, @max(100 * 1024, 2 *| text_to_format.len)) catch {
+            std.log.debug("Failed to collect zig fmt output", .{});
+            _ = try fmt_proc.kill();
+            try file.writeAll(text_to_format);
+            return;
+        };
+
+        // 7. If `zig fmt` didn't exit successfully we write the unformatted text to the file.
+
+        const success: bool = switch (try fmt_proc.wait()) {
+            .Exited => |exit_code| exit_code == 0,
+            else => false,
+        };
+
+        if (!success) {
+            std.log.debug("zig fmt exited with a non-zero status", .{});
+            try file.writeAll(text_to_format);
+            return;
+        }
+
+        // 8. Otherwise we write the (now formatted) output from `zig fmt` to the file.
+
+        // Write result of `zig fmt` to the file.
+        try file.writeAll(stdout.items);
+
+        // 9. Make sure we reload the editor view to make sure things like text, highlighting, and
+        //    cursor positions are valid.
+
+        // Reload the file to get updated file content.
+        // FIXME: Update the current file text in-place instead of reloading and re-reading the
+        //        file.
+        try self.load_file(self.file);
+
+        self.ensure_cursor_is_valid();
+
+        try self.update_line_widgets();
+    }
+
+    /// Make sure the cursor is in a valid position, and moves it to a valid position if it's not.
+    pub fn ensure_cursor_is_valid(self: *Editor) void {
+        // Make sure editor cursor is still valid.
+        self.cursor.line = @min(self.cursor.line, self.len() - 1);
+        const current_line = self.lines.items[self.cursor.line];
+        self.cursor.column = @min(self.cursor.column, current_line.len());
+
+        // Make sure scroll view cursor is still valid.
+        self.scroll_view.cursor = @intCast(self.cursor.line);
     }
 
     pub fn scroll_up(self: *Editor, number_of_lines: u8) void {

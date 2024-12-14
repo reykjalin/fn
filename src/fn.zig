@@ -278,6 +278,7 @@ pub const Fn = struct {
 
                 if (key.matches('s', .{ .super = true })) {
                     try self.save_file();
+                    ctx.consumeAndRedraw();
                 }
             },
             else => {},
