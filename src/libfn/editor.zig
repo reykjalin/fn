@@ -24,34 +24,90 @@ pub const Pos = struct {
     /// Returns `true` if this `Pos` comes before the `other` `Pos`.
     pub fn comesBefore(self: Pos, other: Pos) bool {
         if (self.row < other.row) return true;
-        if (self.row == other.row and self.col < other.col) return true;
+        if (self.row > other.row) return false;
 
-        return false;
+        return self.col < other.col;
     }
-};
 
-/// A span from one cursor to another counts as a selection.
-pub const Selection = struct {
-    cursor: Pos,
-    anchor: Pos,
+    /// Returns `true` if this `Pos` comes after the `other` `Pos`.
+    pub fn comesAfter(self: Pos, other: Pos) bool {
+        if (self.row > other.row) return true;
+        if (self.row < other.row) return false;
+
+        return self.col > other.col;
+    }
 };
 
 pub const Range = struct {
     from: Pos,
     to: Pos,
 
-    pub fn before(self: *Range) Pos {
+    /// Returns `true` if and only if a.from == b.from and a.to == b.to. In other words; the order
+    /// of `.to` and `.from` positions within the range matters.
+    pub fn strictEql(a: Range, b: Range) bool {
+        return a.from.eql(b.from) and a.to.eql(b.to);
+    }
+
+    /// Returns `true` if a and b cover the same areas of the text editor. The order of the `.to`
+    /// and `.from` positions within each range does not matter.
+    pub fn eql(a: Range, b: Range) bool {
+        return a.before().eql(b.before()) and a.after().eql(b.after());
+    }
+
+    /// Returns whichever position in the range that comes earlier in the text.
+    pub fn before(self: *const Range) Pos {
         if (self.from.comesBefore(self.to)) return self.from;
 
         return self.to;
     }
 
-    pub fn after(self: *Range) Pos {
+    /// Returns whichever position in the range that comes later in the text.
+    pub fn after(self: *const Range) Pos {
         if (self.from.comesBefore(self.to)) return self.to;
 
         return self.from;
     }
+
+    /// Returns `true` if the range has 0 width, i.e. the `from` and `to` positions are the same.
+    pub fn isEmpty(self: *const Range) bool {
+        return self.from.eql(self.to);
+    }
+
+    /// Same as `isEmpty`. Just a convenience function when working with selections.
+    pub fn isCursor(self: *const Range) bool {
+        return self.isEmpty();
+    }
+
+    /// Returns `true` if the provided positions sits within the range. A position on the edges of
+    /// the range counts as being inside the range. For example: a position {0,0} is considered to
+    /// be contained by a range from {0,0} to {0,1}.
+    pub fn containsPos(self: *const Range, pos: Pos) bool {
+        // 1. Check if the provided position is inside the range.
+
+        if (self.before().comesBefore(pos) and self.after().comesAfter(pos)) return true;
+
+        // 2. Check if the provided position is on the edge of the range, which we also think of as
+        //    containing the position.
+        return self.from.eql(pos) or self.to.eql(pos);
+    }
+
+    /// Returns `true` if the provided range sits within this range. This uses the same logic as
+    /// `containsPos` and the same rules apply. Equal ranges are considered to contain each other.
+    pub fn containsRange(self: *const Range, other: Range) bool {
+        return self.containsPos(other.from) and self.containsPos(other.to);
+    }
+
+    /// Returns `true` if there's an overlap between the provided ranges. In other words; at least
+    /// one edge from either range is inside the other.
+    pub fn hasOverlap(a: Range, b: Range) bool {
+        // If a contains one of the positions in b the revers is also true, so it's enough to check
+        // for just one of these conditions.
+        return a.containsPos(b.from) or a.containsPos(b.to);
+    }
 };
+
+/// A span from one cursor to another counts as a selection.
+pub const Selection = Range;
 
 pub const TokenType = enum {
     Text,
@@ -98,8 +154,8 @@ pub const Command = union(enum) {
 pub fn init(allocator: std.mem.Allocator) !Editor {
     var selections = std.ArrayList(Selection).init(allocator);
     try selections.append(.{
-        .cursor = .{ .row = 0, .col = 0 },
-        .anchor = .{ .row = 0, .col = 0 },
+        .from = .{ .row = 0, .col = 0 },
+        .to = .{ .row = 0, .col = 0 },
     });
 
     var lines = std.ArrayList(usize).init(allocator);
@@ -164,6 +220,8 @@ pub fn openFile(self: *Editor, filename: []const u8) !void {
 pub fn insertTextBeforeSelection(self: *Editor, text: []const u8) !void {
     _ = self;
     _ = text;
+
+    // TODO: implement.
 }
 
 /// Inserts the provided text after all selections. Selections will not be cleared. The inserted
@@ -171,6 +229,8 @@ pub fn insertTextBeforeSelection(self: *Editor, text: []const u8) !void {
 pub fn insertTextAfterSelection(self: *Editor, text: []const u8) !void {
     _ = self;
     _ = text;
+
+    // TODO: implement.
 }
 
 /// Delete text in the specified range.
@@ -330,6 +390,186 @@ test "Pos.comesBefore" {
 
     try std.testing.expectEqual(true, d.comesBefore(c));
     try std.testing.expectEqual(false, c.comesBefore(d));
+}
+
+test "Pos.comesAfter" {
+    const a: Pos = .{ .row = 0, .col = 0 };
+    const b: Pos = .{ .row = 0, .col = 0 };
+
+    try std.testing.expectEqual(false, a.comesAfter(b));
+    try std.testing.expectEqual(false, b.comesAfter(a));
+
+    const c: Pos = .{ .row = 10, .col = 15 };
+
+    try std.testing.expectEqual(true, c.comesAfter(a));
+    try std.testing.expectEqual(false, a.comesAfter(c));
+
+    const d: Pos = .{ .row = 10, .col = 14 };
+
+    try std.testing.expectEqual(false, d.comesAfter(c));
+    try std.testing.expectEqual(true, c.comesAfter(d));
+}
+
+test "Range.eql" {
+    const a: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
+    const b: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 0, .col = 0 } };
+    const c: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 3 } };
+
+    try std.testing.expectEqual(true, Range.eql(a, a));
+    try std.testing.expectEqual(true, Range.eql(b, b));
+    try std.testing.expectEqual(true, Range.eql(c, c));
+
+    try std.testing.expectEqual(true, Range.eql(a, b));
+    try std.testing.expectEqual(true, Range.eql(b, a));
+
+    try std.testing.expectEqual(false, Range.eql(c, a));
+    try std.testing.expectEqual(false, Range.eql(a, c));
+    try std.testing.expectEqual(false, Range.eql(c, b));
+    try std.testing.expectEqual(false, Range.eql(b, c));
+}
+
+test "Range.strictEql" {
+    const a: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
+    const b: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 0, .col = 0 } };
+    const c: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 3 } };
+
+    try std.testing.expectEqual(true, Range.strictEql(a, a));
+    try std.testing.expectEqual(true, Range.strictEql(b, b));
+    try std.testing.expectEqual(true, Range.strictEql(c, c));
+
+    try std.testing.expectEqual(false, Range.strictEql(a, b));
+    try std.testing.expectEqual(false, Range.strictEql(b, a));
+
+    try std.testing.expectEqual(false, Range.strictEql(c, a));
+    try std.testing.expectEqual(false, Range.strictEql(a, c));
+    try std.testing.expectEqual(false, Range.strictEql(c, b));
+    try std.testing.expectEqual(false, Range.strictEql(b, c));
+}
+
+test "Range.isEmpty/isCursor" {
+    const empty: Range = .{ .from = .{ .row = 1, .col = 1 }, .to = .{ .row = 1, .col = 1 } };
+    const not_empty: Range = .{ .from = .{ .row = 1, .col = 1 }, .to = .{ .row = 1, .col = 2 } };
+
+    try std.testing.expectEqual(true, empty.isEmpty());
+    try std.testing.expectEqual(true, empty.isCursor());
+    try std.testing.expectEqual(false, not_empty.isEmpty());
+    try std.testing.expectEqual(false, not_empty.isCursor());
+}
+
+test "Range.containsPos" {
+    const range: Range = .{
+        .from = .{ .row = 0, .col = 1 },
+        .to = .{ .row = 1, .col = 5 },
+    };
+
+    try std.testing.expectEqual(true, range.containsPos(.{ .row = 0, .col = 1 }));
+    try std.testing.expectEqual(true, range.containsPos(.{ .row = 0, .col = 1 }));
+    try std.testing.expectEqual(true, range.containsPos(.{ .row = 1, .col = 0 }));
+    try std.testing.expectEqual(true, range.containsPos(.{ .row = 1, .col = 5 }));
+
+    try std.testing.expectEqual(false, range.containsPos(.{ .row = 0, .col = 0 }));
+    try std.testing.expectEqual(false, range.containsPos(.{ .row = 1, .col = 6 }));
+    try std.testing.expectEqual(false, range.containsPos(.{ .row = 2, .col = 0 }));
+}
+
+test "Range.containsRange" {
+    const a: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 1, .col = 3 } };
+
+    // 1. Ranges contain themselves and equal ranges.
+
+    try std.testing.expectEqual(true, a.containsRange(a));
+
+    // 2. Ranges contain other ranges that fall within themselves.
+
+    // From start edge to inside.
+    const in_a_1: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 0, .col = 5 } };
+    // From inside to end edge.
+    const in_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
+    // Completely inside.
+    const in_a_3: Range = .{ .from = .{ .row = 0, .col = 3 }, .to = .{ .row = 1, .col = 2 } };
+
+    try std.testing.expectEqual(true, a.containsRange(in_a_1));
+    try std.testing.expectEqual(true, a.containsRange(in_a_2));
+    try std.testing.expectEqual(true, a.containsRange(in_a_3));
+
+    // 3. Ranges do not contain other ranges where one edge is outside.
+
+    // Start edge is outside.
+    const outside_a_1: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 5 } };
+    // End edge is outside.
+    const outside_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 4 } };
+
+    try std.testing.expectEqual(false, a.containsRange(outside_a_1));
+    try std.testing.expectEqual(false, a.containsRange(outside_a_2));
+
+    // 4. Ranges do not contain other ranges that are entirely outside.
+
+    // Outside start, edges are touching.
+    const outside_a_3: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 2 } };
+    // Outside start, edges not touching.
+    const outside_a_4: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 1 } };
+    // Outside end, edges are touching.
+    const outside_a_5: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 1, .col = 5 } };
+    // Outside end, edges not touching.
+    const outside_a_6: Range = .{ .from = .{ .row = 2, .col = 3 }, .to = .{ .row = 2, .col = 5 } };
+
+    try std.testing.expectEqual(false, a.containsRange(outside_a_3));
+    try std.testing.expectEqual(false, a.containsRange(outside_a_4));
+    try std.testing.expectEqual(false, a.containsRange(outside_a_5));
+    try std.testing.expectEqual(false, a.containsRange(outside_a_6));
+}
+
+test "Range.hasOverlap" {
+    const a: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 1, .col = 3 } };
+
+    // 1. Ranges overlap themselves and equal ranges.
+
+    try std.testing.expectEqual(true, Range.hasOverlap(a, a));
+
+    // 2. Ranges overlap containing ranges.
+
+    // From start edge to inside.
+    const in_a_1: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 0, .col = 5 } };
+    // From inside to end edge.
+    const in_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
+    // Completely inside.
+    const in_a_3: Range = .{ .from = .{ .row = 0, .col = 3 }, .to = .{ .row = 1, .col = 2 } };
+
+    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_1));
+    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_2));
+    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_3));
+
+    // 3. Ranges overlap when only one edge is inside the other.
+
+    // Start edge is outside.
+    const outside_a_1: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 5 } };
+    // End edge is outside.
+    const outside_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 4 } };
+
+    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_1));
+    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_2));
+
+    // 4. Ranges overlap when edges are touching.
+    //    TODO: Maybe they shouldn't be considered to be overlapping here? It's just easier to
+    //          implement this if they do, so leaving this as is for now.
+
+    // Outside start, edges are touching.
+    const outside_a_3: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 2 } };
+    // Outside end, edges are touching.
+    const outside_a_4: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 1, .col = 5 } };
+
+    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_3));
+    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_4));
+
+    // 5. Ranges do not overlap when one does not contain an edge from the other.
+
+    // Outside start, edges not touching.
+    const outside_a_5: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 1 } };
+    // Outside end, edges not touching.
+    const outside_a_6: Range = .{ .from = .{ .row = 2, .col = 3 }, .to = .{ .row = 2, .col = 5 } };
+
+    try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_5));
+    try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_6));
 }
 
 test "toBytePos" {
