@@ -327,22 +327,11 @@ fn updateLines(self: *Editor) !void {
     self.lines.clearRetainingCapacity();
     try self.lines.append(Pos.fromInt(0));
 
-    // FIXME: I'm pretty sure this will fail when there are 2 or more new lines in a row.
-    var it = std.mem.tokenizeScalar(u8, self.text.items, '\n');
-    while (it.next()) |_| {
-        // The current index of the iterator is always on the newline. To fromInt the index point to
-        // the first character of each line we have to add one.
-        // NOTE: This will result in the last index being equal to the length of the text array if
-        //       the file ends with a newline.
-        try self.lines.append(Pos.fromInt(it.index +| 1));
+    // NOTE: We start counting from 1 because we consider the start of a line to be **after** a
+    //       newline character, not before.
+    for (self.text.items, 1..) |char, i| {
+        if (char == '\n') try self.lines.append(Pos.fromInt(i));
     }
-
-    // The iterator will reach the end and add an index even if the last character isn't a new line
-    // character. So we fromInt sure to remove the last index if the file doesn't end with a new line.
-    // NOTE: We only do this if we've added more than just the start of the first line to the list
-    //       of lines.
-    if (self.lines.items.len > 1 and !std.mem.endsWith(u8, self.text.items, "\n"))
-        _ = self.lines.pop();
 }
 
 /// Converts the provided `BytePos` object to a `Pos`.
@@ -813,6 +802,19 @@ test "Updating line numbers" {
     try std.testing.expectEqualSlices(
         Pos,
         &.{ Pos.fromInt(0), Pos.fromInt(4), Pos.fromInt(8), Pos.fromInt(12) },
+        editor.lines.items,
+    );
+
+    editor.text.clearRetainingCapacity();
+
+    // 6. Multiple new lines in a row.
+
+    try editor.text.appendSlice("012\n\n\n67\n\n0");
+    try editor.updateLines();
+
+    try std.testing.expectEqualSlices(
+        Pos,
+        &.{ Pos.fromInt(0), Pos.fromInt(4), Pos.fromInt(5), Pos.fromInt(6), Pos.fromInt(9), Pos.fromInt(10) },
         editor.lines.items,
     );
 }
