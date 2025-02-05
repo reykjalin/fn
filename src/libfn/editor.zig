@@ -8,34 +8,37 @@ const std = @import("std");
 /// instead of modifying properties directly.
 const Editor = @This();
 
-// Byte-level cursor position in the content buffer. This is not unicode aware.
-pub const BytePos = usize;
-
 /// Unicode-aware row/col cursor position in the current content-buffer.
-pub const Pos = struct {
-    row: usize,
-    col: usize,
+pub const Pos = enum(usize) {
+    _,
+
+    pub fn fromInt(pos: usize) Pos {
+        return @enumFromInt(pos);
+    }
+
+    pub fn toInt(self: Pos) usize {
+        return @intFromEnum(self);
+    }
 
     /// Returns true if both positions are the same.
     pub fn eql(a: Pos, b: Pos) bool {
-        return a.row == b.row and a.col == b.col;
+        return a.toInt() == b.toInt();
     }
 
     /// Returns `true` if this `Pos` comes before the `other` `Pos`.
     pub fn comesBefore(self: Pos, other: Pos) bool {
-        if (self.row < other.row) return true;
-        if (self.row > other.row) return false;
-
-        return self.col < other.col;
+        return self.toInt() < other.toInt();
     }
 
     /// Returns `true` if this `Pos` comes after the `other` `Pos`.
     pub fn comesAfter(self: Pos, other: Pos) bool {
-        if (self.row > other.row) return true;
-        if (self.row < other.row) return false;
-
-        return self.col > other.col;
+        return self.toInt() > other.toInt();
     }
+};
+
+pub const CoordinatePos = struct {
+    row: usize,
+    col: usize,
 };
 
 pub const Range = struct {
@@ -55,33 +58,28 @@ pub const Range = struct {
     }
 
     /// Returns whichever position in the range that comes earlier in the text.
-    pub fn before(self: *const Range) Pos {
+    pub fn before(self: Range) Pos {
         if (self.from.comesBefore(self.to)) return self.from;
 
         return self.to;
     }
 
     /// Returns whichever position in the range that comes later in the text.
-    pub fn after(self: *const Range) Pos {
+    pub fn after(self: Range) Pos {
         if (self.from.comesBefore(self.to)) return self.to;
 
         return self.from;
     }
 
     /// Returns `true` if the range has 0 width, i.e. the `from` and `to` positions are the same.
-    pub fn isEmpty(self: *const Range) bool {
+    pub fn isEmpty(self: Range) bool {
         return self.from.eql(self.to);
-    }
-
-    /// Same as `isEmpty`. Just a convenience function when working with selections.
-    pub fn isCursor(self: *const Range) bool {
-        return self.isEmpty();
     }
 
     /// Returns `true` if the provided positions sits within the range. A position on the edges of
     /// the range counts as being inside the range. For example: a position {0,0} is considered to
     /// be contained by a range from {0,0} to {0,1}.
-    pub fn containsPos(self: *const Range, pos: Pos) bool {
+    pub fn containsPos(self: Range, pos: Pos) bool {
         // 1. Check if the provided position is inside the range.
 
         if (self.before().comesBefore(pos) and self.after().comesAfter(pos)) return true;
@@ -93,7 +91,7 @@ pub const Range = struct {
 
     /// Returns `true` if the provided range sits within this range. This uses the same logic as
     /// `containsPos` and the same rules apply. Equal ranges are considered to contain each other.
-    pub fn containsRange(self: *const Range, other: Range) bool {
+    pub fn containsRange(self: Range, other: Range) bool {
         return self.containsPos(other.from) and self.containsPos(other.to);
     }
 
@@ -107,7 +105,30 @@ pub const Range = struct {
 };
 
 /// A span from one cursor to another counts as a selection.
-pub const Selection = Range;
+pub const Selection = struct {
+    range: Range,
+
+    /// Returns `true` if this selection is a cursor. A selection is considered a cursor if it's
+    /// empty.
+    pub fn isCursor(self: Selection) bool {
+        return self.range.isEmpty();
+    }
+
+    /// Returns the edge of the selection that's considered to be a cursor. This is typically the
+    /// "end" of the selection, or where the cursor (bar, beam, block, underline, etc.) is located.
+    /// The cursor is not guaranteed to come after the anchor since selections are bi-directional.
+    pub fn cursor(self: Selection) Pos {
+        return self.range.to;
+    }
+
+    /// Returns the edge of the selection that's considered to be an anchor. This is typically the
+    /// "start" of the selection, or where the cursor (bar, beam, block, underline, etc.) is not
+    /// located. The anchor is not guaranteed to come before the cursor since selections are
+    /// bi-directional.
+    pub fn anchor(self: Selection) Pos {
+        return self.range.from;
+    }
+};
 
 pub const TokenType = enum {
     Text,
@@ -128,7 +149,7 @@ filename: std.ArrayList(u8),
 text: std.ArrayList(u8),
 /// The start position of each line in the content buffer using a byte-position. **Modifying this
 /// will cause undefined behavior**. This will automatically be kept up to date by helper methods.
-lines: std.ArrayList(BytePos),
+lines: std.ArrayList(Pos),
 /// An array of tokens in the text. The text will be tokenized every time it changes. **Modifying
 /// this will cause undefined behavior**. The default tokenization has the whole text set to a
 /// simple `Text` type.
@@ -153,16 +174,13 @@ pub const Command = union(enum) {
 /// Initializes an Editor struct with an empty filename and empty content buffer.
 pub fn init(allocator: std.mem.Allocator) !Editor {
     var selections = std.ArrayList(Selection).init(allocator);
-    try selections.append(.{
-        .from = .{ .row = 0, .col = 0 },
-        .to = .{ .row = 0, .col = 0 },
-    });
+    try selections.append(.{ .range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(0) } });
 
-    var lines = std.ArrayList(usize).init(allocator);
-    try lines.append(0);
+    var lines = std.ArrayList(Pos).init(allocator);
+    try lines.append(Pos.fromInt(0));
 
     var tokens = std.ArrayList(Token).init(allocator);
-    try tokens.append(.{ .pos = .{ .row = 0, .col = 0 }, .text = "", .type = .Text });
+    try tokens.append(.{ .pos = Pos.fromInt(0), .text = "", .type = .Text });
 
     return .{
         .filename = std.ArrayList(u8).init(allocator),
@@ -233,47 +251,12 @@ pub fn insertTextAfterSelection(self: *Editor, text: []const u8) !void {
     // TODO: implement.
 }
 
-/// Delete text in the specified range.
-pub fn deleteRange(self: *Editor, range: Range) !void {
-    // 1. Nothing to do if the range is empty.
-
-    if (Pos.eql(range.from, range.to)) return;
-
-    // 2. Assert that the range is valid.
-
-    const before = range.before();
-    const after = range.after();
-
-    std.debug.assert(before.row < self.lines.items.len);
-    std.debug.assert(after.row < self.lines.items.len);
-
-    // It's impossible to represent a position before line 0 so we don't have to check for that. So
-    // it's enough to just ensure that the end of the range doesn't go beyond the last character on
-    // the last line.
-
-    const last_line = self.text.items[self.lines.items[self.lines.items.len - 1]..];
-    std.debug.assert(after.row != self.lines.items.len - 1 or after.col < last_line.len);
-
-    // 3. Remove the range.
-
-    const beforeBytePos = self.toBytePos(before);
-    const afterBytePos = self.toBytePos(after);
-
-    self.text.replaceRangeAssumeCapacity(beforeBytePos, afterBytePos - beforeBytePos, "");
-
-    // 4. Update line start indices.
-
-    try self.updateLines();
-
-    // 5. TODO: Update selections.
-}
-
 /// Tokenizes the text.
 /// TODO: Have language extensions implement this and call those functions when relevant.
 fn tokenize(self: *Editor) !void {
     self.tokens.clearRetainingCapacity();
     try self.tokens.append(.{
-        .pos = .{ .row = 0, .col = 0 },
+        .pos = Pos.fromInt(0),
         .text = self.text.items,
         .type = .Text,
     });
@@ -282,91 +265,72 @@ fn tokenize(self: *Editor) !void {
 /// Updates the indeces for the start of each line in the text.
 fn updateLines(self: *Editor) !void {
     self.lines.clearRetainingCapacity();
-    try self.lines.append(0);
+    try self.lines.append(Pos.fromInt(0));
 
+    // FIXME: I'm pretty sure this will fail when there are 2 or more new lines in a row.
     var it = std.mem.tokenizeScalar(u8, self.text.items, '\n');
     while (it.next()) |_| {
-        // The current index of the iterator is always on the newline. To make the index point to
+        // The current index of the iterator is always on the newline. To fromInt the index point to
         // the first character of each line we have to add one.
         // NOTE: This will result in the last index being equal to the length of the text array if
         //       the file ends with a newline.
-        try self.lines.append(it.index +| 1);
+        try self.lines.append(Pos.fromInt(it.index +| 1));
     }
 
     // The iterator will reach the end and add an index even if the last character isn't a new line
-    // character. So we make sure to remove the last index if the file doesn't end with a new line.
+    // character. So we fromInt sure to remove the last index if the file doesn't end with a new line.
     // NOTE: We only do this if we've added more than just the start of the first line to the list
     //       of lines.
     if (self.lines.items.len > 1 and !std.mem.endsWith(u8, self.text.items, "\n"))
         _ = self.lines.pop();
 }
 
-/// Converts the provided `Pos` object to a `BytePos`.
-pub fn toBytePos(self: *Editor, pos: Pos) BytePos {
-    // 1. Assert that the provided row position is valid.
-
-    std.debug.assert(pos.row < self.lines.items.len);
-
-    // 2. Get the correct line.
-
-    const lineStartIndex: BytePos = self.lines.items[pos.row];
-    const lineEndIndex: BytePos = if (pos.row + 1 < self.lines.items.len)
-        self.lines.items[pos.row + 1]
-    else
-        self.text.items.len;
-
-    // 3. Assert that the provided column position is valid.
-
-    // An empty line is possible which is why we have to use an equality check here.
-    std.debug.assert(lineStartIndex <= lineEndIndex);
-    std.debug.assert(pos.col <= lineEndIndex - lineStartIndex);
-
-    // 4. Return the right byte position.
-
-    return lineStartIndex + pos.col;
-}
-
 /// Converts the provided `BytePos` object to a `Pos`.
-pub fn fromBytepos(self: *Editor, pos: BytePos) Pos {
+pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
     // 1. Assert that the provided position is valid.
 
     // NOTE: The position after the last character in a file is a valid position which is why we
     //       must check for equality against the text length.
-    std.debug.assert(pos <= self.text.items.len);
+    std.debug.assert(pos.toInt() <= self.text.items.len);
 
     // 2. Find the row indicated by the byte-level position.
 
-    var row: usize = 0;
-    for (self.lines.items, 0..) |lineStartIndex, i| {
-        // If we're past the provided byte-level position then we know the previous position was the
-        // correct row.
-        if (lineStartIndex > pos) break;
-        row = i;
-    }
+    const row: usize = row: {
+        var row: usize = 0;
+        for (self.lines.items, 0..) |lineStartIndex, i| {
+            // If we're past the provided byte-level position then we know the previous position was the
+            // correct row_index.
+            if (lineStartIndex.comesAfter(pos)) break :row row;
+            row = i;
+        }
+
+        // If haven't found the position in the loop, we can safely use the last line.
+        break :row self.lines.items.len -| 1;
+    };
 
     // 3. Use the byte-level position of the start of the row to calculate the column of the
     //    provided position.
 
-    const startOfRowIndex: BytePos = self.lines.items[row];
+    const startOfRowIndex: Pos = self.lines.items[row];
 
-    return .{ .row = row, .col = pos - startOfRowIndex };
+    return .{ .row = row, .col = pos.toInt() -| startOfRowIndex.toInt() };
 }
 
 test "Pos.eql" {
-    const a: Pos = .{ .row = 0, .col = 0 };
-    const b: Pos = .{ .row = 0, .col = 0 };
+    const a = Pos.fromInt(0);
+    const b = Pos.fromInt(0);
 
     try std.testing.expectEqual(true, Pos.eql(a, b));
     try std.testing.expectEqual(true, Pos.eql(a, a));
     try std.testing.expectEqual(true, Pos.eql(b, b));
 
-    const c: Pos = .{ .row = 10, .col = 15 };
+    const c = Pos.fromInt(4);
 
     try std.testing.expectEqual(false, Pos.eql(c, a));
     try std.testing.expectEqual(false, Pos.eql(c, b));
     try std.testing.expectEqual(true, Pos.eql(c, c));
 
-    const d: Pos = .{ .row = 10, .col = 14 };
+    const d = Pos.fromInt(3);
 
     try std.testing.expectEqual(false, Pos.eql(d, a));
     try std.testing.expectEqual(false, Pos.eql(d, b));
@@ -375,45 +339,45 @@ test "Pos.eql" {
 }
 
 test "Pos.comesBefore" {
-    const a: Pos = .{ .row = 0, .col = 0 };
-    const b: Pos = .{ .row = 0, .col = 0 };
+    const a = Pos.fromInt(0);
+    const b = Pos.fromInt(0);
 
     try std.testing.expectEqual(false, a.comesBefore(b));
     try std.testing.expectEqual(false, b.comesBefore(a));
 
-    const c: Pos = .{ .row = 10, .col = 15 };
+    const c = Pos.fromInt(4);
 
     try std.testing.expectEqual(false, c.comesBefore(a));
     try std.testing.expectEqual(true, a.comesBefore(c));
 
-    const d: Pos = .{ .row = 10, .col = 14 };
+    const d = Pos.fromInt(3);
 
     try std.testing.expectEqual(true, d.comesBefore(c));
     try std.testing.expectEqual(false, c.comesBefore(d));
 }
 
 test "Pos.comesAfter" {
-    const a: Pos = .{ .row = 0, .col = 0 };
-    const b: Pos = .{ .row = 0, .col = 0 };
+    const a = Pos.fromInt(0);
+    const b = Pos.fromInt(0);
 
     try std.testing.expectEqual(false, a.comesAfter(b));
     try std.testing.expectEqual(false, b.comesAfter(a));
 
-    const c: Pos = .{ .row = 10, .col = 15 };
+    const c = Pos.fromInt(4);
 
     try std.testing.expectEqual(true, c.comesAfter(a));
     try std.testing.expectEqual(false, a.comesAfter(c));
 
-    const d: Pos = .{ .row = 10, .col = 14 };
+    const d = Pos.fromInt(3);
 
     try std.testing.expectEqual(false, d.comesAfter(c));
     try std.testing.expectEqual(true, c.comesAfter(d));
 }
 
 test "Range.eql" {
-    const a: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
-    const b: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 0, .col = 0 } };
-    const c: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 3 } };
+    const a: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(3) };
+    const b: Range = .{ .from = Pos.fromInt(3), .to = Pos.fromInt(0) };
+    const c: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(5) };
 
     try std.testing.expectEqual(true, Range.eql(a, a));
     try std.testing.expectEqual(true, Range.eql(b, b));
@@ -429,9 +393,9 @@ test "Range.eql" {
 }
 
 test "Range.strictEql" {
-    const a: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
-    const b: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 0, .col = 0 } };
-    const c: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 3 } };
+    const a: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(3) };
+    const b: Range = .{ .from = Pos.fromInt(3), .to = Pos.fromInt(0) };
+    const c: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(5) };
 
     try std.testing.expectEqual(true, Range.strictEql(a, a));
     try std.testing.expectEqual(true, Range.strictEql(b, b));
@@ -446,34 +410,31 @@ test "Range.strictEql" {
     try std.testing.expectEqual(false, Range.strictEql(b, c));
 }
 
-test "Range.isEmpty/isCursor" {
-    const empty: Range = .{ .from = .{ .row = 1, .col = 1 }, .to = .{ .row = 1, .col = 1 } };
-    const not_empty: Range = .{ .from = .{ .row = 1, .col = 1 }, .to = .{ .row = 1, .col = 2 } };
+test "Range.isEmpty" {
+    const empty: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(1) };
+    const not_empty: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(2) };
 
     try std.testing.expectEqual(true, empty.isEmpty());
-    try std.testing.expectEqual(true, empty.isCursor());
     try std.testing.expectEqual(false, not_empty.isEmpty());
-    try std.testing.expectEqual(false, not_empty.isCursor());
 }
 
 test "Range.containsPos" {
     const range: Range = .{
-        .from = .{ .row = 0, .col = 1 },
-        .to = .{ .row = 1, .col = 5 },
+        .from = Pos.fromInt(1),
+        .to = Pos.fromInt(5),
     };
 
-    try std.testing.expectEqual(true, range.containsPos(.{ .row = 0, .col = 1 }));
-    try std.testing.expectEqual(true, range.containsPos(.{ .row = 0, .col = 1 }));
-    try std.testing.expectEqual(true, range.containsPos(.{ .row = 1, .col = 0 }));
-    try std.testing.expectEqual(true, range.containsPos(.{ .row = 1, .col = 5 }));
+    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(1)));
+    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(3)));
+    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(5)));
 
-    try std.testing.expectEqual(false, range.containsPos(.{ .row = 0, .col = 0 }));
-    try std.testing.expectEqual(false, range.containsPos(.{ .row = 1, .col = 6 }));
-    try std.testing.expectEqual(false, range.containsPos(.{ .row = 2, .col = 0 }));
+    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(0)));
+    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(6)));
+    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(10)));
 }
 
 test "Range.containsRange" {
-    const a: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 1, .col = 3 } };
+    const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
 
     // 1. Ranges contain themselves and equal ranges.
 
@@ -482,11 +443,11 @@ test "Range.containsRange" {
     // 2. Ranges contain other ranges that fall within themselves.
 
     // From start edge to inside.
-    const in_a_1: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 0, .col = 5 } };
+    const in_a_1: Range = .{ .from = a.from, .to = Pos.fromInt(7) };
     // From inside to end edge.
-    const in_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
+    const in_a_2: Range = .{ .from = Pos.fromInt(6), .to = a.to };
     // Completely inside.
-    const in_a_3: Range = .{ .from = .{ .row = 0, .col = 3 }, .to = .{ .row = 1, .col = 2 } };
+    const in_a_3: Range = .{ .from = Pos.fromInt(4), .to = Pos.fromInt(8) };
 
     try std.testing.expectEqual(true, a.containsRange(in_a_1));
     try std.testing.expectEqual(true, a.containsRange(in_a_2));
@@ -495,9 +456,9 @@ test "Range.containsRange" {
     // 3. Ranges do not contain other ranges where one edge is outside.
 
     // Start edge is outside.
-    const outside_a_1: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 5 } };
+    const outside_a_1: Range = .{ .from = Pos.fromInt(a.from.toInt() -| 2), .to = Pos.fromInt(4) };
     // End edge is outside.
-    const outside_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 4 } };
+    const outside_a_2: Range = .{ .from = Pos.fromInt(6), .to = Pos.fromInt(a.to.toInt() +| 4) };
 
     try std.testing.expectEqual(false, a.containsRange(outside_a_1));
     try std.testing.expectEqual(false, a.containsRange(outside_a_2));
@@ -505,13 +466,13 @@ test "Range.containsRange" {
     // 4. Ranges do not contain other ranges that are entirely outside.
 
     // Outside start, edges are touching.
-    const outside_a_3: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 2 } };
+    const outside_a_3: Range = .{ .from = Pos.fromInt(0), .to = a.from };
     // Outside start, edges not touching.
-    const outside_a_4: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 1 } };
+    const outside_a_4: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(a.from.toInt() -| 1) };
     // Outside end, edges are touching.
-    const outside_a_5: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 1, .col = 5 } };
+    const outside_a_5: Range = .{ .from = a.to, .to = Pos.fromInt(a.to.toInt() +| 4) };
     // Outside end, edges not touching.
-    const outside_a_6: Range = .{ .from = .{ .row = 2, .col = 3 }, .to = .{ .row = 2, .col = 5 } };
+    const outside_a_6: Range = .{ .from = Pos.fromInt(a.to.toInt() +| 1), .to = Pos.fromInt(a.to.toInt() +| 4) };
 
     try std.testing.expectEqual(false, a.containsRange(outside_a_3));
     try std.testing.expectEqual(false, a.containsRange(outside_a_4));
@@ -520,7 +481,7 @@ test "Range.containsRange" {
 }
 
 test "Range.hasOverlap" {
-    const a: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 1, .col = 3 } };
+    const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
 
     // 1. Ranges overlap themselves and equal ranges.
 
@@ -529,11 +490,11 @@ test "Range.hasOverlap" {
     // 2. Ranges overlap containing ranges.
 
     // From start edge to inside.
-    const in_a_1: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 0, .col = 5 } };
+    const in_a_1: Range = .{ .from = a.from, .to = Pos.fromInt(7) };
     // From inside to end edge.
-    const in_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 3 } };
+    const in_a_2: Range = .{ .from = Pos.fromInt(6), .to = a.to };
     // Completely inside.
-    const in_a_3: Range = .{ .from = .{ .row = 0, .col = 3 }, .to = .{ .row = 1, .col = 2 } };
+    const in_a_3: Range = .{ .from = Pos.fromInt(4), .to = Pos.fromInt(8) };
 
     try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_1));
     try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_2));
@@ -542,9 +503,9 @@ test "Range.hasOverlap" {
     // 3. Ranges overlap when only one edge is inside the other.
 
     // Start edge is outside.
-    const outside_a_1: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 5 } };
+    const outside_a_1: Range = .{ .from = Pos.fromInt(a.from.toInt() -| 2), .to = Pos.fromInt(4) };
     // End edge is outside.
-    const outside_a_2: Range = .{ .from = .{ .row = 1, .col = 0 }, .to = .{ .row = 1, .col = 4 } };
+    const outside_a_2: Range = .{ .from = Pos.fromInt(6), .to = Pos.fromInt(a.to.toInt() +| 4) };
 
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_1));
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_2));
@@ -554,9 +515,9 @@ test "Range.hasOverlap" {
     //          implement this if they do, so leaving this as is for now.
 
     // Outside start, edges are touching.
-    const outside_a_3: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 2 } };
+    const outside_a_3: Range = .{ .from = Pos.fromInt(0), .to = a.from };
     // Outside end, edges are touching.
-    const outside_a_4: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = .{ .row = 1, .col = 5 } };
+    const outside_a_4: Range = .{ .from = a.to, .to = Pos.fromInt(a.to.toInt() +| 4) };
 
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_3));
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_4));
@@ -564,38 +525,23 @@ test "Range.hasOverlap" {
     // 5. Ranges do not overlap when one does not contain an edge from the other.
 
     // Outside start, edges not touching.
-    const outside_a_5: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 1 } };
+    const outside_a_5: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(a.from.toInt() -| 1) };
     // Outside end, edges not touching.
-    const outside_a_6: Range = .{ .from = .{ .row = 2, .col = 3 }, .to = .{ .row = 2, .col = 5 } };
+    const outside_a_6: Range = .{ .from = Pos.fromInt(a.to.toInt() +| 1), .to = Pos.fromInt(a.to.toInt() +| 4) };
 
     try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_5));
     try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_6));
 }
 
-test "toBytePos" {
-    var editor = try Editor.init(std.testing.allocator);
-    defer editor.deinit();
+test "Selection.isCursor" {
+    const empty: Selection = .{ .range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(1) } };
+    const not_empty: Selection = .{ .range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(2) } };
 
-    try editor.text.appendSlice("012\n456\n890\n");
-    // Updating the lines is required to properly calculate the byte-level cursor positions.
-    try editor.updateLines();
-
-    try std.testing.expectEqual(0, editor.toBytePos(.{ .row = 0, .col = 0 }));
-    try std.testing.expectEqual(2, editor.toBytePos(.{ .row = 0, .col = 2 }));
-    try std.testing.expectEqual(3, editor.toBytePos(.{ .row = 0, .col = 3 }));
-
-    try std.testing.expectEqual(4, editor.toBytePos(.{ .row = 1, .col = 0 }));
-    try std.testing.expectEqual(5, editor.toBytePos(.{ .row = 1, .col = 1 }));
-    try std.testing.expectEqual(7, editor.toBytePos(.{ .row = 1, .col = 3 }));
-
-    try std.testing.expectEqual(8, editor.toBytePos(.{ .row = 2, .col = 0 }));
-    try std.testing.expectEqual(10, editor.toBytePos(.{ .row = 2, .col = 2 }));
-    try std.testing.expectEqual(11, editor.toBytePos(.{ .row = 2, .col = 3 }));
-
-    try std.testing.expectEqual(12, editor.toBytePos(.{ .row = 3, .col = 0 }));
+    try std.testing.expectEqual(true, empty.isCursor());
+    try std.testing.expectEqual(false, not_empty.isCursor());
 }
 
-test "fromBytePos" {
+test "toCoordinatePos" {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
@@ -603,19 +549,19 @@ test "fromBytePos" {
     // Updating the lines is required to properly calculate the byte-level cursor positions.
     try editor.updateLines();
 
-    try std.testing.expectEqual(Pos{ .row = 0, .col = 0 }, editor.fromBytepos(0));
-    try std.testing.expectEqual(Pos{ .row = 0, .col = 2 }, editor.fromBytepos(2));
-    try std.testing.expectEqual(Pos{ .row = 0, .col = 3 }, editor.fromBytepos(3));
+    try std.testing.expectEqual(CoordinatePos{ .row = 0, .col = 0 }, editor.toCoordinatePos(Pos.fromInt(0)));
+    try std.testing.expectEqual(CoordinatePos{ .row = 0, .col = 2 }, editor.toCoordinatePos(Pos.fromInt(2)));
+    try std.testing.expectEqual(CoordinatePos{ .row = 0, .col = 3 }, editor.toCoordinatePos(Pos.fromInt(3)));
 
-    try std.testing.expectEqual(Pos{ .row = 1, .col = 0 }, editor.fromBytepos(4));
-    try std.testing.expectEqual(Pos{ .row = 1, .col = 1 }, editor.fromBytepos(5));
-    try std.testing.expectEqual(Pos{ .row = 1, .col = 3 }, editor.fromBytepos(7));
+    try std.testing.expectEqual(CoordinatePos{ .row = 1, .col = 0 }, editor.toCoordinatePos(Pos.fromInt(4)));
+    try std.testing.expectEqual(CoordinatePos{ .row = 1, .col = 1 }, editor.toCoordinatePos(Pos.fromInt(5)));
+    try std.testing.expectEqual(CoordinatePos{ .row = 1, .col = 3 }, editor.toCoordinatePos(Pos.fromInt(7)));
 
-    try std.testing.expectEqual(Pos{ .row = 2, .col = 0 }, editor.fromBytepos(8));
-    try std.testing.expectEqual(Pos{ .row = 2, .col = 2 }, editor.fromBytepos(10));
-    try std.testing.expectEqual(Pos{ .row = 2, .col = 3 }, editor.fromBytepos(11));
+    try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 0 }, editor.toCoordinatePos(Pos.fromInt(8)));
+    try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 2 }, editor.toCoordinatePos(Pos.fromInt(10)));
+    try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 3 }, editor.toCoordinatePos(Pos.fromInt(11)));
 
-    try std.testing.expectEqual(Pos{ .row = 3, .col = 0 }, editor.fromBytepos(12));
+    try std.testing.expectEqual(CoordinatePos{ .row = 3, .col = 0 }, editor.toCoordinatePos(Pos.fromInt(12)));
 }
 
 test "Insert before selections" {
@@ -712,7 +658,7 @@ test "Tokenizing text" {
     try std.testing.expectEqualSlices(
         Token,
         &.{
-            .{ .pos = .{ .row = 0, .col = 0 }, .text = &.{}, .type = .Text },
+            .{ .pos = Pos.fromInt(0), .text = &.{}, .type = .Text },
         },
         editor.tokens.items,
     );
@@ -727,7 +673,7 @@ test "Tokenizing text" {
     const token = editor.tokens.items[0];
 
     try std.testing.expectEqual(Editor.TokenType.Text, token.type);
-    try std.testing.expectEqual(Editor.Pos{ .row = 0, .col = 0 }, token.pos);
+    try std.testing.expectEqual(Pos.fromInt(0), token.pos);
     try std.testing.expectEqualStrings("lorem ipsum\n", token.text);
 }
 
@@ -742,8 +688,8 @@ test "Updating line numbers" {
     // We should always have at least one line.
     try std.testing.expectEqual(1, editor.lines.items.len);
     try std.testing.expectEqualSlices(
-        usize,
-        &.{0},
+        Pos,
+        &.{Pos.fromInt(0)},
         editor.lines.items,
     );
 
@@ -753,8 +699,8 @@ test "Updating line numbers" {
     try editor.updateLines();
 
     try std.testing.expectEqualSlices(
-        usize,
-        &.{0},
+        Pos,
+        &.{Pos.fromInt(0)},
         editor.lines.items,
     );
 
@@ -766,8 +712,8 @@ test "Updating line numbers" {
     try editor.updateLines();
 
     try std.testing.expectEqualSlices(
-        usize,
-        &.{ 0, 4 },
+        Pos,
+        &.{ Pos.fromInt(0), Pos.fromInt(4) },
         editor.lines.items,
     );
 
@@ -779,8 +725,8 @@ test "Updating line numbers" {
     try editor.updateLines();
 
     try std.testing.expectEqualSlices(
-        usize,
-        &.{ 0, 4, 8 },
+        Pos,
+        &.{ Pos.fromInt(0), Pos.fromInt(4), Pos.fromInt(8) },
         editor.lines.items,
     );
 
@@ -792,8 +738,8 @@ test "Updating line numbers" {
     try editor.updateLines();
 
     try std.testing.expectEqualSlices(
-        usize,
-        &.{ 0, 4, 8, 12 },
+        Pos,
+        &.{ Pos.fromInt(0), Pos.fromInt(4), Pos.fromInt(8), Pos.fromInt(12) },
         editor.lines.items,
     );
 }
