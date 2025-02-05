@@ -34,6 +34,11 @@ pub const Pos = enum(usize) {
     pub fn comesAfter(self: Pos, other: Pos) bool {
         return self.toInt() > other.toInt();
     }
+
+    /// Comparison function used for sorting.
+    pub fn lessThan(_: void, lhs: Pos, rhs: Pos) bool {
+        return lhs.comesBefore(rhs);
+    }
 };
 
 pub const CoordinatePos = struct {
@@ -106,27 +111,30 @@ pub const Range = struct {
 
 /// A span from one cursor to another counts as a selection.
 pub const Selection = struct {
-    range: Range,
+    /// The edge of the selection that's considered to be a cursor. This is typically the "end"
+    /// of the selection, or where the cursor (bar, beam, block, underline, etc.) is located. The
+    /// cursor is not guaranteed to come after the anchor since selections are bi-directional.
+    cursor: Pos,
+    /// The edge of the selection that's considered to be an anchor. This is typically the "start"
+    /// of the selection, or where the cursor (bar, beam, block, underline, etc.) is not located.
+    /// The anchor is not guaranteed to come before the cursor since selections are bi-directional.
+    anchor: Pos,
 
     /// Returns `true` if this selection is a cursor. A selection is considered a cursor if it's
     /// empty.
     pub fn isCursor(self: Selection) bool {
-        return self.range.isEmpty();
+        return self.cursor.eql(self.anchor);
     }
 
-    /// Returns the edge of the selection that's considered to be a cursor. This is typically the
-    /// "end" of the selection, or where the cursor (bar, beam, block, underline, etc.) is located.
-    /// The cursor is not guaranteed to come after the anchor since selections are bi-directional.
-    pub fn cursor(self: Selection) Pos {
-        return self.range.to;
+    /// Returns a Range based on this Selection. The Range will go from the anchor to the cursor.
+    pub fn toRange(self: Selection) Range {
+        return .{ .from = self.anchor, .to = self.cursor };
     }
 
-    /// Returns the edge of the selection that's considered to be an anchor. This is typically the
-    /// "start" of the selection, or where the cursor (bar, beam, block, underline, etc.) is not
-    /// located. The anchor is not guaranteed to come before the cursor since selections are
-    /// bi-directional.
-    pub fn anchor(self: Selection) Pos {
-        return self.range.from;
+    /// Returns a Selection based on the provided Range. The Selection will anchor to the Range's
+    /// `.from` value and the cursor will be at the Range's `.to` value.
+    pub fn fromRange(range: Range) Selection {
+        return .{ .cursor = range.to, .anchor = range.from };
     }
 };
 
@@ -157,6 +165,8 @@ tokens: std.ArrayList(Token),
 /// An array tracking all of the selections in the editor. **Modifying this will cause undefined
 /// behavior**. Use the methods on the editor to manipulate the selections instead.
 selections: std.ArrayList(Selection),
+/// Allocator that the editor can use when necessary.
+allocator: std.mem.Allocator,
 
 pub const Command = union(enum) {
     /// Adds a new cursor at the given position.
@@ -174,7 +184,7 @@ pub const Command = union(enum) {
 /// Initializes an Editor struct with an empty filename and empty content buffer.
 pub fn init(allocator: std.mem.Allocator) !Editor {
     var selections = std.ArrayList(Selection).init(allocator);
-    try selections.append(.{ .range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(0) } });
+    try selections.append(.{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) });
 
     var lines = std.ArrayList(Pos).init(allocator);
     try lines.append(Pos.fromInt(0));
@@ -183,6 +193,7 @@ pub fn init(allocator: std.mem.Allocator) !Editor {
     try tokens.append(.{ .pos = Pos.fromInt(0), .text = "", .type = .Text });
 
     return .{
+        .allocator = allocator,
         .filename = std.ArrayList(u8).init(allocator),
         .lines = lines,
         .selections = selections,
@@ -231,6 +242,55 @@ pub fn openFile(self: *Editor, filename: []const u8) !void {
     // 6. Tokenize the new text.
 
     try self.tokenize();
+}
+
+/// Deletes the character immediately before the cursor.
+/// FIXME: Make this unicode aware.
+pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
+    // 1. Find all the cursor positions.
+
+    var cursors = std.ArrayList(Pos).init(self.allocator);
+    defer cursors.deinit();
+
+    for (self.selections.items) |selection| {
+        try cursors.append(selection.cursor);
+    }
+
+    // 2. The selections aren't guaranteed to be in order, so we sort them and make sure we delete
+    //    from the back of the text first. That way we don't have to update all the cursors after
+    //    each deletion.
+
+    std.mem.sort(Pos, cursors.items, {}, Pos.lessThan);
+    std.mem.reverse(Pos, cursors.items);
+
+    // 3. Delete the cursors.
+
+    for (cursors.items) |cursor| {
+        // We can't delete before the first character in the file, so that's a noop.
+        if (cursor.toInt() == 0) continue;
+
+        _ = self.text.orderedRemove(cursor.toInt() -| 1);
+    }
+
+    // 4. Update state.
+
+    // Need to update the line positions since they will have moved in most cases.
+    try self.updateLines();
+
+    // Need to re-tokenize.
+    try self.tokenize();
+
+    // Need to move the cursors.
+    for (self.selections.items) |*selection| {
+        // Move the cursor back 1 character.
+        // FIXME: Make this unicode-aware.
+        selection.cursor = Pos.fromInt(selection.cursor.toInt() -| 1);
+
+        // If the cursor moved to a position before the anchor, change the selection to a cursor.
+        if (selection.cursor.comesBefore(selection.anchor)) {
+            selection.anchor = selection.cursor;
+        }
+    }
 }
 
 /// Inserts the provided text before all selections. Selections will not be cleared, and will
@@ -534,8 +594,8 @@ test "Range.hasOverlap" {
 }
 
 test "Selection.isCursor" {
-    const empty: Selection = .{ .range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(1) } };
-    const not_empty: Selection = .{ .range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(2) } };
+    const empty: Selection = .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) };
+    const not_empty: Selection = .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(2) };
 
     try std.testing.expectEqual(true, empty.isCursor());
     try std.testing.expectEqual(false, not_empty.isCursor());
@@ -608,43 +668,56 @@ test "Insert after selections" {
     // 4. Insertion that contains a new line in the middle.
 }
 
-test "Delete text" {
+test "deleteCharacterBeforeCursors" {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
     try editor.text.appendSlice("012\n456\n890\n");
-    // Updating the lines is required to properly calculate the byte-level cursor positions, which
-    // is used in the delete function.
-    try editor.updateLines();
 
-    // 1. Ensure all state is unchanged after deleting an empty range.
+    // NOTE: Editor is always initialized with one selection at the start.
 
-    // 2. Delete within a line.
+    // == Cursors == //
 
-    // 3. Delete at the start of a line.
+    // 1. Deleting from the first position is a noop.
 
-    // 4. Delete at the end of a line.
+    try editor.deleteCharacterBeforeCursors();
 
-    // 5. Delete at the start of a file.
+    try std.testing.expectEqualStrings("012\n456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) }},
+        editor.selections.items,
+    );
 
-    // 6. Delete at the end of a file.
+    // 2. Deleting from the back deletes the last character.
 
-    // 7. Delete from start of line to end of line.
+    // 3. Deleting the first character only deletes the first character.
 
-    // 8. Delete from start of line to start of next line.
+    // 4. Deleting in multiple places.
 
-    // 9. Delete from end of line to start of next line (merge the lines).
+    // 5. Deleting when 2 cursors are in the same location (may happen with overlapping selections).
 
-    // 10. Delete from end of line to end of next line.
+    // 6. Cursors should merge when they reach the start of the file.
 
-    // 11. Delete from within a line to the end of line.
+    // == Selections == //
 
-    // 12. Delete from within a line to the start of next line.
+    // 7. Deleting in a selection should shrink the selection.
 
-    // 13. Delete from within a line to within next line.
+    // 8. Shrinking a selection to a cursor should make that selection a cursor.
 
-    // 14. Delete from multiple lines.
+    // 9. Deleting from side-by-side selections where the anchor from one touches the cursor from
+    //    the other.
 
+    // 10. Deleting from side-by-side selections where the anchors are touching.
+
+    // 11. Deleting from side-by-side selections where the cursors are touching.
+
+    // 12. Deleting from overlapping selections. Test cursor inside the other with other cursor both
+    //     before and after. Test anchor inside the other with other cursor both before and after.
+
+    // == Mix between cursors and selections == //
+
+    // TBD
 }
 
 test "Tokenizing text" {
