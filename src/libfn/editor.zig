@@ -590,7 +590,7 @@ test "Selection.isCursor" {
     try std.testing.expectEqual(false, not_empty.isCursor());
 }
 
-test "toCoordinatePos" {
+test toCoordinatePos {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
@@ -613,7 +613,7 @@ test "toCoordinatePos" {
     try std.testing.expectEqual(CoordinatePos{ .row = 3, .col = 0 }, editor.toCoordinatePos(Pos.fromInt(12)));
 }
 
-test "Insert before selections" {
+test insertTextBeforeSelection {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
@@ -635,13 +635,13 @@ test "Insert before selections" {
     // 4. Insertion that contains a new line in the middle.
 }
 
-test "Insert after selections" {
+test insertTextAfterSelection {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
     // 1. Insertion without new line.
 
-    try editor.insertTextBeforeSelection("lorem ipsum");
+    try editor.insertTextAfterSelection("lorem ipsum");
 
     // try std.testing.expectEqualStrings("lorem ipsum", editor.text.items);
     // try std.testing.expectEqualSlices(
@@ -657,7 +657,7 @@ test "Insert after selections" {
     // 4. Insertion that contains a new line in the middle.
 }
 
-test "deleteCharacterBeforeCursors" {
+test deleteCharacterBeforeCursors {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
@@ -709,7 +709,7 @@ test "deleteCharacterBeforeCursors" {
     // TBD
 }
 
-test "Tokenizing text" {
+test tokenize {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
@@ -739,7 +739,7 @@ test "Tokenizing text" {
     try std.testing.expectEqualStrings("lorem ipsum\n", token.text);
 }
 
-test "Updating line numbers" {
+test updateLines {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
