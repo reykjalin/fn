@@ -3,139 +3,18 @@
 
 const std = @import("std");
 
+const Pos = @import("pos.zig").Pos;
+const Range = @import("range.zig");
+const Selection = @import("selection.zig");
+
 /// Managed editor object for a single file. **All properties are considered private after
 /// initialization. Modifying them will result in undefined behavior.** Use the helper methods
 /// instead of modifying properties directly.
 const Editor = @This();
 
-/// Unicode-aware row/col cursor position in the current content-buffer.
-pub const Pos = enum(usize) {
-    _,
-
-    pub fn fromInt(pos: usize) Pos {
-        return @enumFromInt(pos);
-    }
-
-    pub fn toInt(self: Pos) usize {
-        return @intFromEnum(self);
-    }
-
-    /// Returns true if both positions are the same.
-    pub fn eql(a: Pos, b: Pos) bool {
-        return a.toInt() == b.toInt();
-    }
-
-    /// Returns `true` if this `Pos` comes before the `other` `Pos`.
-    pub fn comesBefore(self: Pos, other: Pos) bool {
-        return self.toInt() < other.toInt();
-    }
-
-    /// Returns `true` if this `Pos` comes after the `other` `Pos`.
-    pub fn comesAfter(self: Pos, other: Pos) bool {
-        return self.toInt() > other.toInt();
-    }
-
-    /// Comparison function used for sorting.
-    pub fn lessThan(_: void, lhs: Pos, rhs: Pos) bool {
-        return lhs.comesBefore(rhs);
-    }
-};
-
 pub const CoordinatePos = struct {
     row: usize,
     col: usize,
-};
-
-pub const Range = struct {
-    from: Pos,
-    to: Pos,
-
-    /// Returns `true` if and only if a.from == b.from and a.to == b.to. In other words; the order
-    /// of `.to` and `.from` positions within the range matters.
-    pub fn strictEql(a: Range, b: Range) bool {
-        return a.from.eql(b.from) and a.to.eql(b.to);
-    }
-
-    /// Returns `true` if a and b cover the same areas of the text editor. The order of the `.to`
-    /// and `.from` positions within each range does not matter.
-    pub fn eql(a: Range, b: Range) bool {
-        return a.before().eql(b.before()) and a.after().eql(b.after());
-    }
-
-    /// Returns whichever position in the range that comes earlier in the text.
-    pub fn before(self: Range) Pos {
-        if (self.from.comesBefore(self.to)) return self.from;
-
-        return self.to;
-    }
-
-    /// Returns whichever position in the range that comes later in the text.
-    pub fn after(self: Range) Pos {
-        if (self.from.comesBefore(self.to)) return self.to;
-
-        return self.from;
-    }
-
-    /// Returns `true` if the range has 0 width, i.e. the `from` and `to` positions are the same.
-    pub fn isEmpty(self: Range) bool {
-        return self.from.eql(self.to);
-    }
-
-    /// Returns `true` if the provided positions sits within the range. A position on the edges of
-    /// the range counts as being inside the range. For example: a position {0,0} is considered to
-    /// be contained by a range from {0,0} to {0,1}.
-    pub fn containsPos(self: Range, pos: Pos) bool {
-        // 1. Check if the provided position is inside the range.
-
-        if (self.before().comesBefore(pos) and self.after().comesAfter(pos)) return true;
-
-        // 2. Check if the provided position is on the edge of the range, which we also think of as
-        //    containing the position.
-        return self.from.eql(pos) or self.to.eql(pos);
-    }
-
-    /// Returns `true` if the provided range sits within this range. This uses the same logic as
-    /// `containsPos` and the same rules apply. Equal ranges are considered to contain each other.
-    pub fn containsRange(self: Range, other: Range) bool {
-        return self.containsPos(other.from) and self.containsPos(other.to);
-    }
-
-    /// Returns `true` if there's an overlap between the provided ranges. In other words; at least
-    /// one edge from either range is inside the other.
-    pub fn hasOverlap(a: Range, b: Range) bool {
-        // If a contains one of the positions in b the revers is also true, so it's enough to check
-        // for just one of these conditions.
-        return a.containsPos(b.from) or a.containsPos(b.to);
-    }
-};
-
-/// A span from one cursor to another counts as a selection.
-pub const Selection = struct {
-    /// The edge of the selection that's considered to be a cursor. This is typically the "end"
-    /// of the selection, or where the cursor (bar, beam, block, underline, etc.) is located. The
-    /// cursor is not guaranteed to come after the anchor since selections are bi-directional.
-    cursor: Pos,
-    /// The edge of the selection that's considered to be an anchor. This is typically the "start"
-    /// of the selection, or where the cursor (bar, beam, block, underline, etc.) is not located.
-    /// The anchor is not guaranteed to come before the cursor since selections are bi-directional.
-    anchor: Pos,
-
-    /// Returns `true` if this selection is a cursor. A selection is considered a cursor if it's
-    /// empty.
-    pub fn isCursor(self: Selection) bool {
-        return self.cursor.eql(self.anchor);
-    }
-
-    /// Returns a Range based on this Selection. The Range will go from the anchor to the cursor.
-    pub fn toRange(self: Selection) Range {
-        return .{ .from = self.anchor, .to = self.cursor };
-    }
-
-    /// Returns a Selection based on the provided Range. The Selection will anchor to the Range's
-    /// `.from` value and the cursor will be at the Range's `.to` value.
-    pub fn fromRange(range: Range) Selection {
-        return .{ .cursor = range.to, .anchor = range.from };
-    }
 };
 
 pub const TokenType = enum {
@@ -226,9 +105,8 @@ pub fn openFile(self: *Editor, filename: []const u8) !void {
 
     // 3. Read the file and store in state.
 
-    const content = try reader.readAll();
     self.text.clearRetainingCapacity();
-    try self.text.appendSlice(content);
+    try reader.readAllArrayList(&self.text, std.math.maxInt(usize));
 
     // 4. Only after the file has been successfully read do we update file name and other state.
 
@@ -363,231 +241,6 @@ pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
     const startOfRowIndex: Pos = self.lines.items[row];
 
     return .{ .row = row, .col = pos.toInt() -| startOfRowIndex.toInt() };
-}
-
-test "Pos.eql" {
-    const a = Pos.fromInt(0);
-    const b = Pos.fromInt(0);
-
-    try std.testing.expectEqual(true, Pos.eql(a, b));
-    try std.testing.expectEqual(true, Pos.eql(a, a));
-    try std.testing.expectEqual(true, Pos.eql(b, b));
-
-    const c = Pos.fromInt(4);
-
-    try std.testing.expectEqual(false, Pos.eql(c, a));
-    try std.testing.expectEqual(false, Pos.eql(c, b));
-    try std.testing.expectEqual(true, Pos.eql(c, c));
-
-    const d = Pos.fromInt(3);
-
-    try std.testing.expectEqual(false, Pos.eql(d, a));
-    try std.testing.expectEqual(false, Pos.eql(d, b));
-    try std.testing.expectEqual(false, Pos.eql(d, c));
-    try std.testing.expectEqual(true, Pos.eql(d, d));
-}
-
-test "Pos.comesBefore" {
-    const a = Pos.fromInt(0);
-    const b = Pos.fromInt(0);
-
-    try std.testing.expectEqual(false, a.comesBefore(b));
-    try std.testing.expectEqual(false, b.comesBefore(a));
-
-    const c = Pos.fromInt(4);
-
-    try std.testing.expectEqual(false, c.comesBefore(a));
-    try std.testing.expectEqual(true, a.comesBefore(c));
-
-    const d = Pos.fromInt(3);
-
-    try std.testing.expectEqual(true, d.comesBefore(c));
-    try std.testing.expectEqual(false, c.comesBefore(d));
-}
-
-test "Pos.comesAfter" {
-    const a = Pos.fromInt(0);
-    const b = Pos.fromInt(0);
-
-    try std.testing.expectEqual(false, a.comesAfter(b));
-    try std.testing.expectEqual(false, b.comesAfter(a));
-
-    const c = Pos.fromInt(4);
-
-    try std.testing.expectEqual(true, c.comesAfter(a));
-    try std.testing.expectEqual(false, a.comesAfter(c));
-
-    const d = Pos.fromInt(3);
-
-    try std.testing.expectEqual(false, d.comesAfter(c));
-    try std.testing.expectEqual(true, c.comesAfter(d));
-}
-
-test "Range.eql" {
-    const a: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(3) };
-    const b: Range = .{ .from = Pos.fromInt(3), .to = Pos.fromInt(0) };
-    const c: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(5) };
-
-    try std.testing.expectEqual(true, Range.eql(a, a));
-    try std.testing.expectEqual(true, Range.eql(b, b));
-    try std.testing.expectEqual(true, Range.eql(c, c));
-
-    try std.testing.expectEqual(true, Range.eql(a, b));
-    try std.testing.expectEqual(true, Range.eql(b, a));
-
-    try std.testing.expectEqual(false, Range.eql(c, a));
-    try std.testing.expectEqual(false, Range.eql(a, c));
-    try std.testing.expectEqual(false, Range.eql(c, b));
-    try std.testing.expectEqual(false, Range.eql(b, c));
-}
-
-test "Range.strictEql" {
-    const a: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(3) };
-    const b: Range = .{ .from = Pos.fromInt(3), .to = Pos.fromInt(0) };
-    const c: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(5) };
-
-    try std.testing.expectEqual(true, Range.strictEql(a, a));
-    try std.testing.expectEqual(true, Range.strictEql(b, b));
-    try std.testing.expectEqual(true, Range.strictEql(c, c));
-
-    try std.testing.expectEqual(false, Range.strictEql(a, b));
-    try std.testing.expectEqual(false, Range.strictEql(b, a));
-
-    try std.testing.expectEqual(false, Range.strictEql(c, a));
-    try std.testing.expectEqual(false, Range.strictEql(a, c));
-    try std.testing.expectEqual(false, Range.strictEql(c, b));
-    try std.testing.expectEqual(false, Range.strictEql(b, c));
-}
-
-test "Range.isEmpty" {
-    const empty: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(1) };
-    const not_empty: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(2) };
-
-    try std.testing.expectEqual(true, empty.isEmpty());
-    try std.testing.expectEqual(false, not_empty.isEmpty());
-}
-
-test "Range.containsPos" {
-    const range: Range = .{
-        .from = Pos.fromInt(1),
-        .to = Pos.fromInt(5),
-    };
-
-    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(1)));
-    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(3)));
-    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(5)));
-
-    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(0)));
-    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(6)));
-    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(10)));
-}
-
-test "Range.containsRange" {
-    const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
-
-    // 1. Ranges contain themselves and equal ranges.
-
-    try std.testing.expectEqual(true, a.containsRange(a));
-
-    // 2. Ranges contain other ranges that fall within themselves.
-
-    // From start edge to inside.
-    const in_a_1: Range = .{ .from = a.from, .to = Pos.fromInt(7) };
-    // From inside to end edge.
-    const in_a_2: Range = .{ .from = Pos.fromInt(6), .to = a.to };
-    // Completely inside.
-    const in_a_3: Range = .{ .from = Pos.fromInt(4), .to = Pos.fromInt(8) };
-
-    try std.testing.expectEqual(true, a.containsRange(in_a_1));
-    try std.testing.expectEqual(true, a.containsRange(in_a_2));
-    try std.testing.expectEqual(true, a.containsRange(in_a_3));
-
-    // 3. Ranges do not contain other ranges where one edge is outside.
-
-    // Start edge is outside.
-    const outside_a_1: Range = .{ .from = Pos.fromInt(a.from.toInt() -| 2), .to = Pos.fromInt(4) };
-    // End edge is outside.
-    const outside_a_2: Range = .{ .from = Pos.fromInt(6), .to = Pos.fromInt(a.to.toInt() +| 4) };
-
-    try std.testing.expectEqual(false, a.containsRange(outside_a_1));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_2));
-
-    // 4. Ranges do not contain other ranges that are entirely outside.
-
-    // Outside start, edges are touching.
-    const outside_a_3: Range = .{ .from = Pos.fromInt(0), .to = a.from };
-    // Outside start, edges not touching.
-    const outside_a_4: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(a.from.toInt() -| 1) };
-    // Outside end, edges are touching.
-    const outside_a_5: Range = .{ .from = a.to, .to = Pos.fromInt(a.to.toInt() +| 4) };
-    // Outside end, edges not touching.
-    const outside_a_6: Range = .{ .from = Pos.fromInt(a.to.toInt() +| 1), .to = Pos.fromInt(a.to.toInt() +| 4) };
-
-    try std.testing.expectEqual(false, a.containsRange(outside_a_3));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_4));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_5));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_6));
-}
-
-test "Range.hasOverlap" {
-    const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
-
-    // 1. Ranges overlap themselves and equal ranges.
-
-    try std.testing.expectEqual(true, Range.hasOverlap(a, a));
-
-    // 2. Ranges overlap containing ranges.
-
-    // From start edge to inside.
-    const in_a_1: Range = .{ .from = a.from, .to = Pos.fromInt(7) };
-    // From inside to end edge.
-    const in_a_2: Range = .{ .from = Pos.fromInt(6), .to = a.to };
-    // Completely inside.
-    const in_a_3: Range = .{ .from = Pos.fromInt(4), .to = Pos.fromInt(8) };
-
-    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_1));
-    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_2));
-    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_3));
-
-    // 3. Ranges overlap when only one edge is inside the other.
-
-    // Start edge is outside.
-    const outside_a_1: Range = .{ .from = Pos.fromInt(a.from.toInt() -| 2), .to = Pos.fromInt(4) };
-    // End edge is outside.
-    const outside_a_2: Range = .{ .from = Pos.fromInt(6), .to = Pos.fromInt(a.to.toInt() +| 4) };
-
-    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_1));
-    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_2));
-
-    // 4. Ranges overlap when edges are touching.
-    //    TODO: Maybe they shouldn't be considered to be overlapping here? It's just easier to
-    //          implement this if they do, so leaving this as is for now.
-
-    // Outside start, edges are touching.
-    const outside_a_3: Range = .{ .from = Pos.fromInt(0), .to = a.from };
-    // Outside end, edges are touching.
-    const outside_a_4: Range = .{ .from = a.to, .to = Pos.fromInt(a.to.toInt() +| 4) };
-
-    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_3));
-    try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_4));
-
-    // 5. Ranges do not overlap when one does not contain an edge from the other.
-
-    // Outside start, edges not touching.
-    const outside_a_5: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(a.from.toInt() -| 1) };
-    // Outside end, edges not touching.
-    const outside_a_6: Range = .{ .from = Pos.fromInt(a.to.toInt() +| 1), .to = Pos.fromInt(a.to.toInt() +| 4) };
-
-    try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_5));
-    try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_6));
-}
-
-test "Selection.isCursor" {
-    const empty: Selection = .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) };
-    const not_empty: Selection = .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(2) };
-
-    try std.testing.expectEqual(true, empty.isCursor());
-    try std.testing.expectEqual(false, not_empty.isCursor());
 }
 
 test toCoordinatePos {
@@ -817,4 +470,8 @@ test updateLines {
         &.{ Pos.fromInt(0), Pos.fromInt(4), Pos.fromInt(5), Pos.fromInt(6), Pos.fromInt(9), Pos.fromInt(10) },
         editor.lines.items,
     );
+}
+
+test "refAllDecls" {
+    std.testing.refAllDecls(@This());
 }
