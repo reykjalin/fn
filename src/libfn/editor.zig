@@ -131,7 +131,18 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
     defer cursors.deinit();
 
     for (self.selections.items) |selection| {
-        try cursors.append(selection.cursor);
+        var shouldAppend = true;
+
+        // We make sure we only add one of each cursor position to make sure selections where the
+        // cursors are touching don't cause 2 deletes.
+        for (cursors.items) |cursor| {
+            if (cursor == selection.cursor) {
+                shouldAppend = false;
+                break;
+            }
+        }
+
+        if (shouldAppend) try cursors.append(selection.cursor);
     }
 
     // 2. The selections aren't guaranteed to be in order, so we sort them and make sure we delete
@@ -160,14 +171,16 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
 
     // Need to move the cursors.
     for (self.selections.items) |*selection| {
+        // We move the anchor with the cursor if the anchor comes after the cursor, or if the
+        // selection is a cursor.
+        // FIXME: Make this unicode-aware.
+        if (selection.cursor.comesBefore(selection.anchor) or selection.isCursor()) {
+            selection.anchor = Pos.fromInt(selection.anchor.toInt() -| 1);
+        }
+
         // Move the cursor back 1 character.
         // FIXME: Make this unicode-aware.
         selection.cursor = Pos.fromInt(selection.cursor.toInt() -| 1);
-
-        // If the cursor moved to a position before the anchor, change the selection to a cursor.
-        if (selection.cursor.comesBefore(selection.anchor)) {
-            selection.anchor = selection.cursor;
-        }
     }
 }
 
@@ -314,13 +327,17 @@ test deleteCharacterBeforeCursors {
     var editor = try Editor.init(std.testing.allocator);
     defer editor.deinit();
 
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
     try editor.text.appendSlice("012\n456\n890\n");
-
-    // NOTE: Editor is always initialized with one selection at the start.
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
 
     // == Cursors == //
 
     // 1. Deleting from the first position is a noop.
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) });
 
     try editor.deleteCharacterBeforeCursors();
 
@@ -331,30 +348,110 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
+    try editor.text.appendSlice("012\n456\n890\n");
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
+
     // 2. Deleting from the back deletes the last character.
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(12), .cursor = Pos.fromInt(12) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("012\n456\n890", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.{ .anchor = Pos.fromInt(11), .cursor = Pos.fromInt(11) }},
+        editor.selections.items,
+    );
+
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
+    try editor.text.appendSlice("012\n456\n890\n");
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
 
     // 3. Deleting the first character only deletes the first character.
 
+    try editor.selections.append(.{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("12\n456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) }},
+        editor.selections.items,
+    );
+
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
+    try editor.text.appendSlice("012\n456\n890\n");
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
+
     // 4. Deleting in multiple places.
 
-    // 5. Deleting when 2 cursors are in the same location (may happen with overlapping selections).
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(8), .cursor = Pos.fromInt(8) });
 
-    // 6. Cursors should merge when they reach the start of the file.
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("01\n456890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) },
+            .{ .anchor = Pos.fromInt(7), .cursor = Pos.fromInt(7) },
+        },
+        editor.selections.items,
+    );
+
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
+    try editor.text.appendSlice("012\n456\n890\n");
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
+
+    // 5. Cursors should merge when they reach the start of the file.
 
     // == Selections == //
 
-    // 7. Deleting in a selection should shrink the selection.
+    // 6. Deleting in a selection should shrink the selection.
 
-    // 8. Shrinking a selection to a cursor should make that selection a cursor.
+    // 7. Shrinking a selection to a cursor should make that selection a cursor.
 
-    // 9. Deleting from side-by-side selections where the anchor from one touches the cursor from
+    // 8. Deleting from side-by-side selections where the anchor from one touches the cursor from
     //    the other.
 
-    // 10. Deleting from side-by-side selections where the anchors are touching.
+    // 9. Deleting from side-by-side selections where the anchors are touching.
 
-    // 11. Deleting from side-by-side selections where the cursors are touching.
+    // 10. Deleting from side-by-side selections where the cursors are touching.
 
-    // 12. Deleting from overlapping selections. Test cursor inside the other with other cursor both
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(3) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(4), .cursor = Pos.fromInt(3) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("01\n456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) },
+            .{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(2) },
+        },
+        editor.selections.items,
+    );
+
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
+    try editor.text.appendSlice("012\n456\n890\n");
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
+
+    // 11. Deleting from overlapping selections. Test cursor inside the other with other cursor both
     //     before and after. Test anchor inside the other with other cursor both before and after.
 
     // == Mix between cursors and selections == //
