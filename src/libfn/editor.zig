@@ -152,13 +152,13 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
     std.mem.sort(Pos, cursors.items, {}, Pos.lessThan);
     std.mem.reverse(Pos, cursors.items);
 
-    // 3. Delete the cursors.
+    // 3. Delete character before each cursor.
 
     for (cursors.items) |cursor| {
         // We can't delete before the first character in the file, so that's a noop.
         if (cursor.toInt() == 0) continue;
 
-        _ = self.text.orderedRemove(cursor.toInt() -| 1);
+        _ = self.text.orderedRemove(cursor.toInt() - 1);
     }
 
     // 4. Update state.
@@ -169,18 +169,64 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
     // Need to re-tokenize.
     try self.tokenize();
 
-    // Need to move the cursors.
-    for (self.selections.items) |*selection| {
-        // We move the anchor with the cursor if the anchor comes after the cursor, or if the
-        // selection is a cursor.
-        // FIXME: Make this unicode-aware.
-        if (selection.cursor.comesBefore(selection.anchor) or selection.isCursor()) {
-            selection.anchor = Pos.fromInt(selection.anchor.toInt() -| 1);
+    // 5. Update selections.
+
+    // Each selection moves a different amount. The first selection in the file moves back 1
+    // character, the 2nd 2 characters, the 3rd 3 characters, and so on.
+    // Since selections aren't guaranteed to be in order we need a way to update them in order. We
+    // do this by constructing a map such that each selection receives an int describing how much it
+    // should move.
+    //
+    // Example:
+    //      Selections: {   10,   40,   30 }
+    //  File order map: {    1,    3,    2 } These values represent the order within the file in
+    //                                       which these selections appear.
+    //     Calculation: { 10-1, 40-3, 30-2}
+    //          Result: {    9,   37,   28 }
+
+    var orderMap = std.ArrayList(usize).init(self.allocator);
+    defer orderMap.deinit();
+
+    // FIXME: n^2 complexity on this is terrible, but it was the easy way to implement this. Use an
+    //        actual sorting algorithm to do this faster, jeez. Although tbf, this is unlikely to
+    //        be a real bottleneck, so maybe this is good enough. Integer math be fast like that.
+    for (self.selections.items) |current| {
+        var movement: usize = 1;
+        for (self.selections.items) |other| {
+            // FIXME: selections should have equality methods so you don't have to convert to
+            //        ranges.
+            if (current.toRange().strictEql(other.toRange())) continue;
+
+            // We move the cursor 1 additional character for every cursor that comes before it.
+            if (other.cursor.comesBefore(current.cursor)) movement += 1;
         }
 
-        // Move the cursor back 1 character.
-        // FIXME: Make this unicode-aware.
-        selection.cursor = Pos.fromInt(selection.cursor.toInt() -| 1);
+        try orderMap.append(movement);
+    }
+
+    // Need to move the cursors. Since each selection will have resulted in a deleted character we
+    // need to move each cursor back equal to it's position in the file.
+    for (self.selections.items, orderMap.items) |*selection, movement| {
+        if (selection.isCursor()) {
+            // FIXME: Make this unicode-aware.
+            selection.cursor = Pos.fromInt(selection.cursor.toInt() -| movement);
+            selection.anchor = selection.cursor;
+            continue;
+        }
+
+        // Move both by `movement` if the cursor comes before the anchor in the selection.
+        // Otherwise move just the cursor.
+        if (selection.cursor.comesBefore(selection.anchor)) {
+            // FIXME: Make this unicode-aware.
+            selection.cursor = Pos.fromInt(selection.cursor.toInt() -| movement);
+            selection.anchor = Pos.fromInt(selection.anchor.toInt() -| movement);
+        } else {
+            // FIXME: Make this unicode-aware.
+            selection.cursor = Pos.fromInt(selection.cursor.toInt() -| movement);
+
+            // Collapse the selection into a cursor if the cursor moved beyond the anchor.
+            if (selection.cursor.comesBefore(selection.anchor)) selection.anchor = selection.cursor;
+        }
     }
 }
 
@@ -333,9 +379,28 @@ test deleteCharacterBeforeCursors {
     try editor.updateLines();
     editor.selections.clearRetainingCapacity();
 
+    // Legend for selections:
+    //  * A cursor (0-width selection): +
+    //  * Anchor of a selection: ^
+    //  * Cursor of a selection: |
+
     // == Cursors == //
 
     // 1. Deleting from the first position is a noop.
+
+    // Before:
+    //
+    // 1 | +012
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | +012
+    // 2 | 456
+    // 3 | 890
+    // 4 |
 
     try editor.selections.append(.{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) });
 
@@ -356,6 +421,19 @@ test deleteCharacterBeforeCursors {
 
     // 2. Deleting from the back deletes the last character.
 
+    // Before:
+    //
+    // 1 | 012
+    // 2 | 456
+    // 3 | 890
+    // 4 | +
+    //
+    // After:
+    //
+    // 1 | 012
+    // 2 | 456
+    // 3 | 890+
+
     try editor.selections.append(.{ .anchor = Pos.fromInt(12), .cursor = Pos.fromInt(12) });
 
     try editor.deleteCharacterBeforeCursors();
@@ -374,6 +452,20 @@ test deleteCharacterBeforeCursors {
     editor.selections.clearRetainingCapacity();
 
     // 3. Deleting the first character only deletes the first character.
+
+    // Before:
+    //
+    // 1 | 0+12
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | +12
+    // 2 | 456
+    // 3 | 890
+    // 4 |
 
     try editor.selections.append(.{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) });
 
@@ -394,6 +486,19 @@ test deleteCharacterBeforeCursors {
 
     // 4. Deleting in multiple places.
 
+    // Before:
+    //
+    // 1 | 012+
+    // 2 | 456
+    // 3 | +890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | 01+
+    // 2 | 456+890
+    // 3 |
+
     try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
     try editor.selections.append(.{ .anchor = Pos.fromInt(8), .cursor = Pos.fromInt(8) });
 
@@ -404,7 +509,7 @@ test deleteCharacterBeforeCursors {
         Selection,
         &.{
             .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) },
-            .{ .anchor = Pos.fromInt(7), .cursor = Pos.fromInt(7) },
+            .{ .anchor = Pos.fromInt(6), .cursor = Pos.fromInt(6) },
         },
         editor.selections.items,
     );
@@ -417,6 +522,22 @@ test deleteCharacterBeforeCursors {
 
     // 5. Cursors should merge when they reach the start of the file.
 
+    // 6. Cursors should merge when they reach the same index after a deletion.
+
+    // Before:
+    //
+    // 1 | 01+2+
+    // 2 | 45+6
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | 0+
+    // 2 | 4+6
+    // 3 | 890
+    // 4 |
+
     // == Selections == //
 
     // 6. Deleting in a selection should shrink the selection.
@@ -428,7 +549,57 @@ test deleteCharacterBeforeCursors {
 
     // 9. Deleting from side-by-side selections where the anchors are touching.
 
-    // 10. Deleting from side-by-side selections where the cursors are touching.
+    // Before:
+    //
+    // 1 | 01|2^^
+    // 2 | |456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    // FIXME: Should the selections be merged here?
+    //
+    // 1 | 0|2^+456
+    // 2 | 890
+    // 4 |
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(2) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(4) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("02456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(1) },
+            .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) },
+        },
+        editor.selections.items,
+    );
+
+    // Reset editor.
+    editor.text.clearRetainingCapacity();
+    try editor.text.appendSlice("012\n456\n890\n");
+    try editor.updateLines();
+    editor.selections.clearRetainingCapacity();
+
+    // 10. Deleting from side-by-side selections where the cursors are touching; cursors are
+    //     considered as a single cursor.
+
+    // Before:
+    //
+    // 1 | 01^2||
+    // 2 | ^456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | 01^||
+    // 2 | ^456
+    // 3 | 890
+    // 4 |
 
     try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(3) });
     try editor.selections.append(.{ .anchor = Pos.fromInt(4), .cursor = Pos.fromInt(3) });
@@ -451,8 +622,25 @@ test deleteCharacterBeforeCursors {
     try editor.updateLines();
     editor.selections.clearRetainingCapacity();
 
-    // 11. Deleting from overlapping selections. Test cursor inside the other with other cursor both
+    // 11. Selections collapse into cursor when they become equal after a deletion.
+
+    // Before:
+    //
+    // 1 | 0^1|^2|
+    // 2 | 4^5|6
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | 0+
+    // 2 | 4+6
+    // 3 | 890
+    // 4 |
+
+    // 12. Deleting from overlapping selections. Test cursor inside the other with other cursor both
     //     before and after. Test anchor inside the other with other cursor both before and after.
+    //     Test selections merging if they become equal (strict vs. non-strict equal might matter?).
 
     // == Mix between cursors and selections == //
 
