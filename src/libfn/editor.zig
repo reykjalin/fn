@@ -195,7 +195,7 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
         for (self.selections.items) |other| {
             // FIXME: selections should have equality methods so you don't have to convert to
             //        ranges.
-            if (current.toRange().strictEql(other.toRange())) continue;
+            if (current.strictEql(other)) continue;
 
             // We move the cursor 1 additional character for every cursor that comes before it.
             if (other.cursor.comesBefore(current.cursor)) movement += 1;
@@ -250,7 +250,7 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
         var j = i + 1;
         while (j < self.selections.items.len) {
             const other_selection = self.selections.items[j];
-            if (selection.toRange().eql(other_selection.toRange())) {
+            if (selection.eql(other_selection)) {
                 _ = self.selections.swapRemove(j);
 
                 // It's essential to `continue` here so we check `selection` against whichever
