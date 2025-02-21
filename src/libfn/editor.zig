@@ -644,6 +644,104 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(6), .cursor = Pos.fromInt(6) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("0\n46\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) },
+            .{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
+    // Same test, but the selections appear in a different order.
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(6), .cursor = Pos.fromInt(6) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("0\n46\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) },
+            .{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
+    // Same test, but the selections appear in a different order.
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(6), .cursor = Pos.fromInt(6) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("0\n46\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) },
+            .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
+    // Same test, but the selections appear in a different order.
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(6), .cursor = Pos.fromInt(6) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("0\n46\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) },
+            .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
+    // Same test, but the selections appear in a different order.
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(6), .cursor = Pos.fromInt(6) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("0\n46\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) },
+            .{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
     // == Selections == //
 
     // 6. Deleting in a selection should shrink the selection.
