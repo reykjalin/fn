@@ -381,15 +381,18 @@ test insertTextAfterSelection {
     // 4. Insertion that contains a new line in the middle.
 }
 
-test deleteCharacterBeforeCursors {
-    var editor = try Editor.init(std.testing.allocator);
-    defer editor.deinit();
-
-    // Reset editor.
+fn testOnly_resetEditor(editor: *Editor) !void {
     editor.text.clearRetainingCapacity();
     try editor.text.appendSlice("012\n456\n890\n");
     try editor.updateLines();
     editor.selections.clearRetainingCapacity();
+}
+
+test deleteCharacterBeforeCursors {
+    var editor = try Editor.init(std.testing.allocator);
+    defer editor.deinit();
+
+    try testOnly_resetEditor(&editor);
 
     // Legend for selections:
     //  * A cursor (0-width selection): +
@@ -425,11 +428,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // 2. Deleting from the back deletes the last character.
 
@@ -457,11 +456,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // 3. Deleting the first character only deletes the first character.
 
@@ -490,11 +485,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // 4. Deleting in multiple places.
 
@@ -526,11 +517,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // 5. Cursors should merge when they reach the start of the file.
 
@@ -590,11 +577,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // Before:
     //
@@ -625,11 +608,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // 10. Deleting from side-by-side selections where the cursors are touching; cursors are
     //     considered as a single cursor.
@@ -663,11 +642,7 @@ test deleteCharacterBeforeCursors {
         editor.selections.items,
     );
 
-    // Reset editor.
-    editor.text.clearRetainingCapacity();
-    try editor.text.appendSlice("012\n456\n890\n");
-    try editor.updateLines();
-    editor.selections.clearRetainingCapacity();
+    try testOnly_resetEditor(&editor);
 
     // 11. Selections collapse into cursor when they become equal after a deletion.
 
