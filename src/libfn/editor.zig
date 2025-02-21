@@ -240,6 +240,27 @@ pub fn deleteCharacterBeforeCursors(self: *Editor) !void {
             if (selection.cursor.comesBefore(selection.anchor)) selection.anchor = selection.cursor;
         }
     }
+
+    // 6. Remove duplicate selections.
+
+    for (self.selections.items, 0..) |selection, i| {
+        const is_last_selection = i == self.selections.items.len - 1;
+        if (is_last_selection) break;
+
+        var j = i + 1;
+        while (j < self.selections.items.len) {
+            const other_selection = self.selections.items[j];
+            if (selection.toRange().eql(other_selection.toRange())) {
+                _ = self.selections.swapRemove(j);
+
+                // It's essential to `continue` here so we check `selection` against whichever
+                // selection has now moved to be at index `j`.
+                continue;
+            }
+
+            j += 1;
+        }
+    }
 }
 
 /// Inserts the provided text before all selections. Selections will not be cleared, and will
@@ -521,6 +542,92 @@ test deleteCharacterBeforeCursors {
 
     // 5. Cursors should merge when they reach the start of the file.
 
+    // Before:
+    //
+    // 1 | 0+1+2
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | +2
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("2\n456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
+    // Before:
+    //
+    // 1 | 0+12+
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | +1+
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) });
+    try editor.selections.append(.{ .anchor = Pos.fromInt(3), .cursor = Pos.fromInt(3) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("1\n456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) },
+            .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) },
+        },
+        editor.selections.items,
+    );
+
+    // Before:
+    //
+    // 1 | +1+
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | +
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("\n456\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(0) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
     // 6. Cursors should merge when they reach the same index after a deletion.
 
     // Before:
@@ -543,10 +650,12 @@ test deleteCharacterBeforeCursors {
 
     // 7. Shrinking a selection to a cursor should make that selection a cursor.
 
-    // 8. Deleting from side-by-side selections where the anchor from one touches the cursor from
+    // 8. Selections are moved correctly even if they're out of order in the selections array.
+
+    // 9. Deleting from side-by-side selections where the anchor from one touches the cursor from
     //    the other.
 
-    // 9. Deleting from side-by-side selections where the anchors are touching.
+    // 10. Deleting from side-by-side selections where the anchors are touching.
 
     // Before:
     //
@@ -610,7 +719,7 @@ test deleteCharacterBeforeCursors {
 
     try testOnly_resetEditor(&editor);
 
-    // 10. Deleting from side-by-side selections where the cursors are touching; cursors are
+    // 11. Deleting from side-by-side selections where the cursors are touching; cursors are
     //     considered as a single cursor.
 
     // Before:
@@ -644,7 +753,7 @@ test deleteCharacterBeforeCursors {
 
     try testOnly_resetEditor(&editor);
 
-    // 11. Selections collapse into cursor when they become equal after a deletion.
+    // 12. Selections collapse into cursor when they become equal after a deletion.
 
     // Before:
     //
@@ -660,11 +769,9 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    // 12. Deleting from overlapping selections. Test cursor inside the other with other cursor both
+    // 13. Deleting from overlapping selections. Test cursor inside the other with other cursor both
     //     before and after. Test anchor inside the other with other cursor both before and after.
     //     Test selections merging if they become equal (strict vs. non-strict equal might matter?).
-
-    // 13. Selections are moved correctly even if they're out of order in the selections array.
 
     // == Mix between cursors and selections == //
 
