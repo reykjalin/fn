@@ -744,11 +744,72 @@ test deleteCharacterBeforeCursors {
 
     // == Selections == //
 
-    // 6. Deleting in a selection should shrink the selection.
+    // 6. Deleting when the cursor comes after the anchor should shrink the selection.
+
+    // Before:
+    //
+    // 1 | 01^2
+    // 2 | 456|
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | 01^2
+    // 2 | 45|
+    // 3 | 890
+    // 4 |
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(7) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("012\n45\n890\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(6) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
 
     // 7. Shrinking a selection to a cursor should make that selection a cursor.
 
-    // 8. Selections are moved correctly even if they're out of order in the selections array.
+    // Before:
+    //
+    // 1 | 01^2|
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+    //
+    // After:
+    //
+    // 1 | 01+
+    // 2 | 456
+    // 3 | 890
+    // 4 |
+
+    try editor.selections.append(.{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(3) });
+
+    try editor.deleteCharacterBeforeCursors();
+
+    try std.testing.expectEqualStrings("01\n456\n890\n", editor.text.items);
+    try std.testing.expectEqual(1, editor.selections.items.len);
+    try std.testing.expect(editor.selections.items[0].isCursor());
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = Pos.fromInt(2), .cursor = Pos.fromInt(2) },
+        },
+        editor.selections.items,
+    );
+
+    try testOnly_resetEditor(&editor);
+
+    // 8. Selections are moved correctly after deletion even if they're out of order in the
+    //    selections array.
 
     // 9. Deleting from side-by-side selections where the anchor from one touches the cursor from
     //    the other.
