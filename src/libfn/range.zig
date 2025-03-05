@@ -61,8 +61,12 @@ pub fn containsRange(self: Range, other: Range) bool {
 /// Returns `true` if there's an overlap between the provided ranges. In other words; at least
 /// one edge from either range is inside the other.
 pub fn hasOverlap(a: Range, b: Range) bool {
-    // If a contains one of the positions in b the revers is also true, so it's enough to check
-    // for just one of these conditions.
+    // Ranges overlap if one contains the other.
+    if (a.containsRange(b) or b.containsRange(a)) return true;
+
+    // If one range does not contain the other then it's enough to check if one range contains a
+    // position from the other. We don't need to check both because at least one edge from one is
+    // guaranteed to be outside the other.
     return a.containsPos(b.from) or a.containsPos(b.to);
 }
 
@@ -223,6 +227,12 @@ test hasOverlap {
 
     try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_5));
     try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_6));
+
+    // 6. The latter parameter to hasOverlap contains the former parameter, but not vice versa.
+
+    const former: Range = .{ .from = .fromInt(1), .to = .fromInt(1) };
+    const latter: Range = .{ .from = .fromInt(0), .to = .fromInt(5) };
+    try std.testing.expect(Range.hasOverlap(former, latter));
 }
 
 test "refAllDecls" {
