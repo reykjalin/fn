@@ -281,6 +281,35 @@ pub fn insertTextAfterSelection(self: *Editor, text: []const u8) !void {
     // TODO: implement.
 }
 
+/// Appends the provided Selection to the current list of selections. If the new selection overlaps
+/// an existing selection they will be merged.
+pub fn appendSelection(self: *Editor, new_selection: Selection) !void {
+    // 1. Append the selection.
+
+    try self.selections.append(new_selection);
+
+    // 2. Merge any overlapping selections.
+
+    var outer: usize = 0;
+    outer: while (outer < self.selections.items.len) {
+        const before: Selection = self.selections.items[outer];
+
+        // Go through the remaining selections and merge any that overlap with the current
+        // selection.
+        var inner = outer +| 1;
+        while (inner < self.selections.items.len) : (inner += 1) {
+            const after = self.selections.items[inner];
+            if (before.hasOverlap(after)) {
+                self.selections.items[outer] = Selection.merge(before, after);
+                _ = self.selections.swapRemove(inner);
+                continue :outer;
+            }
+        }
+
+        outer += 1;
+    }
+}
+
 /// Tokenizes the text.
 /// TODO: Have language extensions implement this and call those functions when relevant.
 fn tokenize(self: *Editor) !void {
@@ -333,6 +362,18 @@ pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
     const startOfRowIndex: Pos = self.lines.items[row];
 
     return .{ .row = row, .col = pos.toInt() -| startOfRowIndex.toInt() };
+}
+
+/// Returns `true` if any of the current selections overlap, `false` otherwise.
+fn hasValidSelections(self: *const Editor) bool {
+    for (self.selections.items, 0..) |selection, current_idx| {
+        var i = current_idx +| 1;
+        while (i < self.selections.items.len) : (i += 1) {
+            if (selection.hasOverlap(self.selections.items[i])) return true;
+        }
+    }
+
+    return false;
 }
 
 test toCoordinatePos {
@@ -400,6 +441,61 @@ test insertTextAfterSelection {
     // 3. Insertion that ends with a new line.
 
     // 4. Insertion that contains a new line in the middle.
+}
+
+test appendSelection {
+    var editor = try Editor.init(std.testing.allocator);
+    defer editor.deinit();
+
+    editor.selections.clearRetainingCapacity();
+
+    // 1. Inserting a selection that would cause an existing selection to expand into a different,
+    //    pre-existing selection should merge all selections.
+
+    // 1 | 01^2|345^67|89
+    //          ^       ^  insertion
+    // Result:
+    //
+    // 1 | 01^2345678|9
+
+    try editor.appendSelection(.{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
+    try editor.appendSelection(.{ .anchor = .fromInt(6), .cursor = .fromInt(8) });
+
+    try std.testing.expect(!editor.hasValidSelections());
+
+    try editor.appendSelection(.{ .anchor = .fromInt(3), .cursor = .fromInt(9) });
+
+    try std.testing.expect(!editor.hasValidSelections());
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.{ .anchor = .fromInt(2), .cursor = .fromInt(9) }},
+        editor.selections.items,
+    );
+
+    editor.selections.clearRetainingCapacity();
+
+    // 1 | 01^2|345^67|89
+    //               ^  ^  insertion
+    // Result:
+    //
+    // 1 | 01^2|345^678|9
+
+    try editor.appendSelection(.{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
+    try editor.appendSelection(.{ .anchor = .fromInt(6), .cursor = .fromInt(8) });
+
+    try std.testing.expect(!editor.hasValidSelections());
+
+    try editor.appendSelection(.{ .anchor = .fromInt(7), .cursor = .fromInt(9) });
+
+    try std.testing.expect(!editor.hasValidSelections());
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = .fromInt(2), .cursor = .fromInt(3) },
+            .{ .anchor = .fromInt(6), .cursor = .fromInt(9) },
+        },
+        editor.selections.items,
+    );
 }
 
 fn testOnly_resetEditor(editor: *Editor) !void {
