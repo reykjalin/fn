@@ -44,6 +44,113 @@ pub fn strictEql(a: Selection, b: Selection) bool {
     return a.cursor == b.cursor and a.anchor == b.anchor;
 }
 
+/// Returns `true` if there's an overlap between the provided selections. In other words; at least
+/// one edge from either selection is inside the other.
+pub fn hasOverlap(a: Selection, b: Selection) bool {
+    return a.toRange().hasOverlap(b.toRange());
+}
+
+/// Merges the provided Selections into a new selection. Asserts that the selections overlap.
+pub fn merge(a: Selection, b: Selection) Selection {
+    std.debug.assert(a.hasOverlap(b));
+
+    if (a.toRange().containsRange(b.toRange())) return a;
+    if (b.toRange().containsRange(a.toRange())) return b;
+
+    if (a.isCursor()) {
+        if (a.anchor.comesBefore(b.toRange().before()))
+            return .{ .anchor = a.anchor, .cursor = b.toRange().after() };
+
+        return .{ .anchor = b.toRange().before(), .cursor = a.cursor };
+    }
+
+    if (a.anchor.comesBefore(a.cursor)) {
+        if (a.anchor.comesAfter(b.toRange().before()))
+            return .{ .anchor = b.toRange().before(), .cursor = a.cursor };
+
+        return .{ .anchor = a.anchor, .cursor = b.toRange().after() };
+    }
+
+    if (a.cursor.comesAfter(b.toRange().before()))
+        return .{ .anchor = a.anchor, .cursor = b.toRange().before() };
+
+    return .{ .anchor = b.toRange().after(), .cursor = a.cursor };
+}
+
+test merge {
+    // 1. If one selection contains the other, just return the containing selection.
+
+    try std.testing.expectEqual(
+        Selection{ .anchor = .fromInt(0), .cursor = .fromInt(5) },
+        Selection.merge(
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+            .{ .anchor = .fromInt(0), .cursor = .fromInt(5) },
+        ),
+    );
+    try std.testing.expectEqual(
+        Selection{ .anchor = .fromInt(0), .cursor = .fromInt(5) },
+        Selection.merge(
+            .{ .anchor = .fromInt(0), .cursor = .fromInt(5) },
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+        ),
+    );
+
+    // 2. Merging a cursor and a selection.
+
+    try std.testing.expectEqual(
+        Selection{ .anchor = .fromInt(1), .cursor = .fromInt(5) },
+        Selection.merge(
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(5) },
+        ),
+    );
+    try std.testing.expectEqual(
+        Selection{ .anchor = .fromInt(0), .cursor = .fromInt(1) },
+        Selection.merge(
+            .{ .anchor = .fromInt(0), .cursor = .fromInt(1) },
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+        ),
+    );
+
+    // 3. Merging overlapping selections.
+
+    try std.testing.expectEqual(
+        Selection{ .anchor = .fromInt(0), .cursor = .fromInt(9) },
+        Selection.merge(
+            .{ .anchor = .fromInt(0), .cursor = .fromInt(5) },
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(9) },
+        ),
+    );
+    try std.testing.expectEqual(
+        Selection{ .anchor = .fromInt(0), .cursor = .fromInt(9) },
+        Selection.merge(
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(9) },
+            .{ .anchor = .fromInt(0), .cursor = .fromInt(5) },
+        ),
+    );
+    try std.testing.expectEqual(
+        Selection{ .cursor = .fromInt(0), .anchor = .fromInt(9) },
+        Selection.merge(
+            .{ .cursor = .fromInt(1), .anchor = .fromInt(9) },
+            .{ .cursor = .fromInt(0), .anchor = .fromInt(5) },
+        ),
+    );
+    try std.testing.expectEqual(
+        Selection{ .cursor = .fromInt(0), .anchor = .fromInt(9) },
+        Selection.merge(
+            .{ .cursor = .fromInt(0), .anchor = .fromInt(5) },
+            .{ .cursor = .fromInt(1), .anchor = .fromInt(9) },
+        ),
+    );
+    try std.testing.expectEqual(
+        Selection{ .cursor = .fromInt(0), .anchor = .fromInt(9) },
+        Selection.merge(
+            .{ .cursor = .fromInt(0), .anchor = .fromInt(5) },
+            .{ .anchor = .fromInt(1), .cursor = .fromInt(9) },
+        ),
+    );
+}
+
 test isCursor {
     const empty: Selection = .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(1) };
     const not_empty: Selection = .{ .anchor = Pos.fromInt(1), .cursor = Pos.fromInt(2) };
