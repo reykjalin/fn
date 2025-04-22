@@ -74,7 +74,6 @@ pub const Menu = struct {
             .widget = self.widget(),
             .buffer = &.{},
             .children = children,
-            .focusable = true,
         };
     }
 
@@ -135,13 +134,12 @@ pub const MenuBar = struct {
 
         // 1. Draw the background for the menu bar.
 
-        var menu_bar_surf = try vxfw.Surface.init(
+        const menu_bar_surf = try vxfw.Surface.init(
             ctx.arena,
             self.widget(),
             .{ .width = max.width, .height = 1 },
         );
         @memset(menu_bar_surf.buffer, .{ .style = self.style });
-        menu_bar_surf.focusable = true;
 
         self.children[0] = .{
             .surface = menu_bar_surf,
@@ -167,7 +165,6 @@ pub const MenuBar = struct {
             .widget = self.widget(),
             .buffer = &.{},
             .children = self.children,
-            .focusable = false,
         };
     }
 

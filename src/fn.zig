@@ -327,7 +327,6 @@ pub const Fn = struct {
             .widget = self.widget(),
             .buffer = &.{},
             .children = self.children,
-            .focusable = false,
         };
     }
 };

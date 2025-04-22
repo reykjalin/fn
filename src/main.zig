@@ -1,7 +1,6 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
-const ltf = @import("log_to_file");
 const builtin = @import("builtin");
 
 const fonn = @import("./fn.zig");
@@ -16,19 +15,26 @@ pub const std_options: std.Options = if (builtin.mode == .Debug) .{
         .{ .scope = .vaxis, .level = .info },
         .{ .scope = .vaxis_parser, .level = .info },
     },
-    .logFn = ltf.log_to_file,
 } else .{};
 
-pub fn main() !void {
-    // Set up allocator.
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
-    const allocator = gpa.allocator();
+pub fn main() !void {
+    var gpa, const is_debug = gpa: {
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
+    };
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
+    };
+
+    const arena = std.heap.ArenaAllocator.init(gpa);
 
     // Process arguments.
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
 
     if (args.len > 1 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) {
         const writer = std.io.getStdOut().writer();
@@ -49,27 +55,27 @@ pub fn main() !void {
     }
 
     // Initialize vaxis app.
-    var app = try vxfw.App.init(allocator);
+    var app = try vxfw.App.init(gpa);
     errdefer app.deinit();
 
     // Initialize Fönn.
-    const fnApp = try allocator.create(fonn.Fn);
-    defer allocator.destroy(fnApp);
+    const fnApp = try gpa.create(fonn.Fn);
+    defer gpa.destroy(fnApp);
 
     // Set up initial state.
 
-    const fnApp_children = try allocator.alloc(vxfw.SubSurface, 3);
-    defer allocator.free(fnApp_children);
+    const fnApp_children = try gpa.alloc(vxfw.SubSurface, 3);
+    defer gpa.free(fnApp_children);
 
-    const editor_widget = try allocator.create(editor.Editor);
-    defer allocator.destroy(editor_widget);
+    const editor_widget = try gpa.create(editor.Editor);
+    defer gpa.destroy(editor_widget);
 
     editor_widget.* = .{
         .cursor = .{ .line = 0, .column = 0 },
-        .lines = std.ArrayList(editor.Line).init(allocator),
-        .line_widgets = std.ArrayList(vxfw.RichText).init(allocator),
-        .gpa = allocator,
-        .arena = std.heap.ArenaAllocator.init(allocator),
+        .lines = .empty,
+        .line_widgets = .empty,
+        .gpa = gpa,
+        .arena = arena,
         .file = "",
         .scroll_bars = .{
             .scroll_view = .{
@@ -100,10 +106,10 @@ pub fn main() !void {
 
     // Set initial state.
     fnApp.* = .{
-        .gpa = allocator,
+        .gpa = gpa,
         .children = fnApp_children,
         .menu_bar = .{
-            .menus = try allocator.alloc(*mb.Menu, 2),
+            .menus = try gpa.alloc(*mb.Menu, 2),
         },
         .editor = editor_widget,
     };
@@ -112,11 +118,11 @@ pub fn main() !void {
 
     // Free fn state.
     defer {
-        for (fnApp.editor.lines.items) |l| {
-            l.text.deinit();
+        for (fnApp.editor.lines.items) |*l| {
+            l.text.deinit(gpa);
         }
-        fnApp.editor.lines.deinit();
-        fnApp.editor.line_widgets.deinit();
+        fnApp.editor.lines.deinit(gpa);
+        fnApp.editor.line_widgets.deinit(gpa);
         fnApp.editor.arena.deinit();
         fnApp.deinit();
     }

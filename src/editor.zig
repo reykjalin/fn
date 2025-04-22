@@ -10,7 +10,7 @@ pub const Position = struct {
     line: usize,
     column: usize,
 
-    pub fn to_cursor(self: *Position) Cursor {
+    pub fn toCursor(self: *Position) Cursor {
         return .{ .line = self.line, .column = self.column };
     }
 };
@@ -19,13 +19,13 @@ pub const Cursor = struct {
     line: usize,
     column: usize,
 
-    pub fn to_position(self: *Cursor) Position {
+    pub fn toPosition(self: *Cursor) Position {
         return .{ .line = self.line, .column = self.column };
     }
 };
 
 pub const Line = struct {
-    text: std.ArrayList(u8),
+    text: std.ArrayListUnmanaged(u8),
 
     /// Returns the length of the line.
     /// TODO: Make this UTF-8 grapheme aware.
@@ -36,8 +36,8 @@ pub const Line = struct {
 
 pub const Editor = struct {
     cursor: Cursor,
-    lines: std.ArrayList(Line),
-    line_widgets: std.ArrayList(vxfw.RichText),
+    lines: std.ArrayListUnmanaged(Line),
+    line_widgets: std.ArrayListUnmanaged(vxfw.RichText),
     file: []const u8,
     scroll_bars: vxfw.ScrollBars,
     children: []vxfw.SubSurface,
@@ -73,11 +73,11 @@ pub const Editor = struct {
     pub fn load_file(self: *Editor, file_path: []const u8) !void {
         // 1. Reset line storage and open file.
 
-        for (self.lines.items) |line| {
-            line.text.deinit();
+        for (self.lines.items) |*line| {
+            line.text.deinit(self.gpa);
         }
 
-        self.lines.clearAndFree();
+        self.lines.clearAndFree(self.gpa);
         self.file = "";
 
         // 2. Open the file to read its contents.
@@ -86,8 +86,8 @@ pub const Editor = struct {
             // We're not interested in doing anything with the errors here, except make sure a line
             // is initialized.
             // FIXME: We should notify the user somehow that opening a file failed.
-            const line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
-            try self.lines.append(line);
+            const line: Line = .{ .text = .empty };
+            try self.lines.append(self.gpa, line);
             return;
         };
 
@@ -99,10 +99,10 @@ pub const Editor = struct {
         const reader = buf_reader.reader();
 
         // We'll use an arraylist to read line-by-line.
-        var line = std.ArrayList(u8).init(self.gpa);
-        defer line.deinit();
+        var line: std.ArrayListUnmanaged(u8) = .empty;
+        defer line.deinit(self.gpa);
 
-        const writer = line.writer();
+        const writer = line.writer(self.gpa);
 
         // 4. Read the file line-by-line.
 
@@ -111,20 +111,20 @@ pub const Editor = struct {
             defer line.clearRetainingCapacity();
 
             // Move the line contents into a Line struct.
-            var l: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
-            try l.text.appendSlice(line.items);
+            var l: Line = .{ .text = .empty };
+            try l.text.appendSlice(self.gpa, line.items);
 
             // Append the line contents to the initial state.
-            try self.lines.append(l);
+            try self.lines.append(self.gpa, l);
         } else |err| switch (err) {
             // Handle the last line of the file.
             error.EndOfStream => {
                 // Move the line contents into a Line struct.
-                var l: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
-                try l.text.appendSlice(line.items);
+                var l: Line = .{ .text = .empty };
+                try l.text.appendSlice(self.gpa, line.items);
 
                 // Append the line contents to the initial state.
-                try self.lines.append(l);
+                try self.lines.append(self.gpa, l);
             },
             else => return err,
         }
@@ -195,12 +195,12 @@ pub const Editor = struct {
 
         // 6. Get the output from `zig fmt`.
 
-        var stdout = std.ArrayList(u8).init(self.gpa);
-        var stderr = std.ArrayList(u8).init(self.gpa);
-        defer stdout.deinit();
-        defer stderr.deinit();
+        var stdout: std.ArrayListUnmanaged(u8) = .empty;
+        var stderr: std.ArrayListUnmanaged(u8) = .empty;
+        defer stdout.deinit(self.gpa);
+        defer stderr.deinit(self.gpa);
 
-        fmt_proc.collectOutput(&stdout, &stderr, @max(100 * 1024, 2 *| text_to_format.len)) catch {
+        fmt_proc.collectOutput(self.gpa, &stdout, &stderr, @max(100 * 1024, 2 *| text_to_format.len)) catch {
             std.log.debug("Failed to collect zig fmt output", .{});
             _ = try fmt_proc.kill();
             try file.writeAll(text_to_format);
@@ -319,7 +319,7 @@ pub const Editor = struct {
             .key_press => |key| {
                 if (key.matches(vaxis.Key.enter, .{})) {
                     // Insert newline and move cursor to the new line.
-                    try self.insert_new_line_at(self.cursor.to_position());
+                    try self.insert_new_line_at(self.cursor.toPosition());
                     self.move_cursor_to(.{
                         .line = self.cursor.line +| 1,
                         .column = 0,
@@ -337,6 +337,7 @@ pub const Editor = struct {
                         "\t";
 
                     try self.lines.items[self.cursor.line].text.insertSlice(
+                        self.gpa,
                         self.cursor.column,
                         spacing,
                     );
@@ -429,7 +430,11 @@ pub const Editor = struct {
                     ctx.consumeAndRedraw();
                 } else if (key.text) |t| {
                     std.log.debug("inserting text: '{s}'", .{t});
-                    try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, t);
+                    try self.lines.items[self.cursor.line].text.insertSlice(
+                        self.gpa,
+                        self.cursor.column,
+                        t,
+                    );
                     self.cursor.column +|= 1;
 
                     // Make sure the cursor is visible.
@@ -496,7 +501,7 @@ pub const Editor = struct {
         for (self.lines.items) |line| {
             // 5. Create all the spans that will represent the text in the RichText widget.
 
-            var spans = std.ArrayList(vxfw.RichText.TextSpan).init(allocator);
+            var spans: std.ArrayListUnmanaged(vxfw.RichText.TextSpan) = .empty;
 
             // We have to make sure widgets for empty lines contain _something_ so they're actually
             // rendered.
@@ -506,8 +511,8 @@ pub const Editor = struct {
                 const spacing_buf = try allocator.alloc(u8, 101 + 3);
                 @memset(spacing_buf, ' ');
                 std.mem.copyForwards(u8, spacing_buf[100..], "\u{2502}");
-                try spans.append(.{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
-                try self.line_widgets.append(.{ .text = spans.items, .softwrap = false });
+                try spans.append(allocator, .{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
+                try self.line_widgets.append(self.gpa, .{ .text = spans.items, .softwrap = false });
                 continue;
             }
 
@@ -530,7 +535,7 @@ pub const Editor = struct {
                 std.mem.startsWith(u8, symbol_it.peek().?, "//"))
             {
                 // First add the comment text.
-                try spans.append(.{ .text = buf, .style = comment_style });
+                try spans.append(allocator, .{ .text = buf, .style = comment_style });
 
                 // Then add the bar at column 101, if applicable.
                 if (line.len() < 101) {
@@ -540,10 +545,10 @@ pub const Editor = struct {
                     const spacing_buf = try allocator.alloc(u8, spacing_buf_len);
                     @memset(spacing_buf, ' ');
                     std.mem.copyForwards(u8, spacing_buf[spacing_buf_len -| 4..], "\u{2502}");
-                    try spans.append(.{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
+                    try spans.append(allocator, .{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
                 }
 
-                try self.line_widgets.append(.{ .text = spans.items, .softwrap = false });
+                try self.line_widgets.append(self.gpa, .{ .text = spans.items, .softwrap = false });
                 continue;
             }
 
@@ -564,18 +569,18 @@ pub const Editor = struct {
                     default_style;
 
                 // First add a span for any whitespace leading up to the current symbol.
-                try spans.append(.{
+                try spans.append(allocator, .{
                     .text = buf[idx .. symbol_it.index - symbol.len],
                     .style = default_style,
                 });
 
                 // Then add the current symbol.
-                try spans.append(.{ .text = symbol, .style = style });
+                try spans.append(allocator, .{ .text = symbol, .style = style });
             } else {
                 // Add an empty span so there's something rendered for lines that only contain
                 // whitespace.
                 if (idx == 0) {
-                    try spans.append(.{ .text = "" });
+                    try spans.append(allocator, .{ .text = "" });
                 }
             }
 
@@ -590,12 +595,12 @@ pub const Editor = struct {
                 const spacing_buffer = try allocator.alloc(u8, spacing_buffer_len);
                 @memset(spacing_buffer, ' ');
                 std.mem.copyForwards(u8, spacing_buffer[spacing_buffer_len -| 4..], "\u{2502}");
-                try spans.append(.{ .text = spacing_buffer, .style = .{ .fg = c_mocha.red } });
+                try spans.append(allocator, .{ .text = spacing_buffer, .style = .{ .fg = c_mocha.red } });
             }
 
             // 8. Add the spans to the list of line widgets.
 
-            try self.line_widgets.append(.{
+            try self.line_widgets.append(self.gpa, .{
                 .text = spans.items,
                 .softwrap = false,
             });
@@ -621,11 +626,10 @@ pub const Editor = struct {
         self.scroll_bars.scroll_view.item_count = @intCast(self.len());
         self.scroll_bars.estimated_content_height = @intCast(self.len());
 
-        var scroll_view: vxfw.SubSurface = .{
+        const scroll_view: vxfw.SubSurface = .{
             .origin = .{ .row = 0, .col = 0 },
             .surface = try self.scroll_bars.draw(ctx),
         };
-        scroll_view.surface.focusable = true;
 
         self.children[0] = scroll_view;
 
@@ -666,23 +670,22 @@ pub const Editor = struct {
             .widget = self.widget(),
             .buffer = &.{},
             .children = self.children,
-            .focusable = true,
             .cursor = cursor,
         };
     }
 
     pub fn get_all_text(self: *Editor, allocator: std.mem.Allocator) ![]u8 {
         // NOTE: No need to deinit because we return the value from `.toOwnedSlice()`.
-        var text = std.ArrayList(u8).init(allocator);
+        var text: std.ArrayListUnmanaged(u8) = .empty;
 
         for (self.lines.items, 0..) |line, i| {
-            try text.appendSlice(line.text.items);
+            try text.appendSlice(allocator, line.text.items);
 
             // Add a newline if we're not at the last line.
-            if (i < self.lines.items.len - 1) try text.appendSlice("\n");
+            if (i < self.lines.items.len - 1) try text.appendSlice(allocator, "\n");
         }
 
-        return text.toOwnedSlice();
+        return text.toOwnedSlice(allocator);
     }
 
     /// Asserts that the provided position is valid. A position is valid if it's:
@@ -723,7 +726,7 @@ pub const Editor = struct {
         while (it.next()) |line| {
             // 1. Insert the text at the current cursor position.
 
-            try self.lines.items[self.cursor.line].text.insertSlice(self.cursor.column, line);
+            try self.lines.items[self.cursor.line].text.insertSlice(self.gpa, self.cursor.column, line);
 
             // 2. Update the cursor position such that it is after the inserted text.
 
@@ -731,7 +734,7 @@ pub const Editor = struct {
 
             // 3. Add a new line after the inserted text.
 
-            try self.insert_new_line_at(self.cursor.to_position());
+            try self.insert_new_line_at(self.cursor.toPosition());
 
             // 4. Move the cursor to the start of the new line.
 
@@ -766,12 +769,13 @@ pub const Editor = struct {
 
             // Append current line contents to previous line.
             try self.lines.items[self.cursor.line - 1].text.appendSlice(
+                self.gpa,
                 self.lines.items[self.cursor.line].text.items,
             );
 
             // Remove current line and free the memory.
-            const removed_element = self.lines.orderedRemove(self.cursor.line);
-            removed_element.text.deinit();
+            var removed_element = self.lines.orderedRemove(self.cursor.line);
+            removed_element.text.deinit(self.gpa);
 
             // Update cursor position.
             self.cursor.line -= 1;
@@ -811,14 +815,14 @@ pub const Editor = struct {
 
         // We need a copy of the memory because when we clear the current line any pointers will be
         // invalidated.
-        const current_line_copy = try current_line.text.clone();
-        defer current_line_copy.deinit();
+        var current_line_copy = try current_line.text.clone(self.gpa);
+        defer current_line_copy.deinit(self.gpa);
 
         const remaining_text = current_line_copy.items[self.cursor.column..];
 
         // Replace the line with the text from the cursor onwards.
         current_line.text.clearRetainingCapacity();
-        try current_line.text.appendSlice(remaining_text);
+        try current_line.text.appendSlice(self.gpa, remaining_text);
 
         // 3. Move the cursor to the start of the line.
 
@@ -1101,13 +1105,14 @@ pub const Editor = struct {
         var current_line = &self.lines.items[pos.line];
 
         // 2. Create a new line struct with the text after the character position.
-        var new_line: Line = .{ .text = std.ArrayList(u8).init(self.gpa) };
+        var new_line: Line = .{ .text = .empty };
         try new_line.text.appendSlice(
+            self.gpa,
             current_line.text.items[pos.column..],
         );
 
         // 3. Insert the new line below the line at `pos`.
-        try self.lines.insert(pos.line + 1, new_line);
+        try self.lines.insert(self.gpa, pos.line + 1, new_line);
 
         // 4. Erase the text after the character position from the line at `pos`.
         current_line.text.shrinkRetainingCapacity(pos.column);
