@@ -3,7 +3,7 @@ const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 const builtin = @import("builtin");
 
-const fonn = @import("./fn.zig");
+const Fonn = @import("./Fonn.zig");
 const editor = @import("./editor.zig");
 const mb = @import("./menu_bar.zig");
 
@@ -29,8 +29,6 @@ pub fn main() !void {
     defer if (is_debug) {
         _ = debug_allocator.deinit();
     };
-
-    const arena = std.heap.ArenaAllocator.init(gpa);
 
     // Process arguments.
     const args = try std.process.argsAlloc(gpa);
@@ -59,75 +57,26 @@ pub fn main() !void {
     errdefer app.deinit();
 
     // Initialize Fönn.
-    const fnApp = try gpa.create(fonn.Fn);
-    defer gpa.destroy(fnApp);
-
-    // Set up initial state.
-
-    const fnApp_children = try gpa.alloc(vxfw.SubSurface, 3);
-    defer gpa.free(fnApp_children);
-
-    const editor_widget = try gpa.create(editor.Editor);
-    defer gpa.destroy(editor_widget);
-
-    editor_widget.* = .{
-        .cursor = .{ .line = 0, .column = 0 },
-        .lines = .empty,
-        .line_widgets = .empty,
-        .gpa = gpa,
-        .arena = arena,
-        .file = "",
-        .scroll_bars = .{
-            .scroll_view = .{
-                .children = .{
-                    .builder = .{
-                        .userdata = editor_widget,
-                        .buildFn = editor.Editor.editor_line_widget_builder,
-                    },
-                },
-            },
-        },
-        .children = undefined,
-    };
-    editor_widget.scroll_bars.scroll_view.wheel_scroll = 1;
+    const fonn: *Fonn = try .init(gpa);
+    defer gpa.destroy(fonn);
 
     // If we have more than 1 argument, use the last argument as the file to open.
     if (args.len > 1) {
         const file_path = args[args.len - 1];
-        try editor_widget.load_file(file_path);
+        try fonn.editor.loadFile(file_path);
     } else {
         // Load an empty file just to initialize the lines correctly.
-        try editor_widget.load_file("");
+        try fonn.editor.loadFile("");
     }
 
     // Prepare the widgets used to draw the text on the first render.
     // FIXME: there might be a better way to do this? Or at least a better time to do this.
-    try editor_widget.update_line_widgets();
-
-    // Set initial state.
-    fnApp.* = .{
-        .gpa = gpa,
-        .children = fnApp_children,
-        .menu_bar = .{
-            .menus = try gpa.alloc(*mb.Menu, 2),
-        },
-        .editor = editor_widget,
-    };
-
-    try fnApp.init();
+    try fonn.editor.updateLineWidgets();
 
     // Free fn state.
-    defer {
-        for (fnApp.editor.lines.items) |*l| {
-            l.text.deinit(gpa);
-        }
-        fnApp.editor.lines.deinit(gpa);
-        fnApp.editor.line_widgets.deinit(gpa);
-        fnApp.editor.arena.deinit();
-        fnApp.deinit();
-    }
+    defer fonn.deinit();
 
     // Run app.
-    try app.run(fnApp.widget(), .{});
+    try app.run(fonn.widget(), .{});
     app.deinit();
 }

@@ -43,7 +43,42 @@ pub const Editor = struct {
     children: []vxfw.SubSurface,
 
     gpa: std.mem.Allocator,
-    arena: std.heap.ArenaAllocator,
+    arena_state: std.heap.ArenaAllocator,
+
+    pub fn init(gpa: std.mem.Allocator) !*Editor {
+        const editor = try gpa.create(Editor);
+        editor.* = .{
+            .cursor = .{ .column = 0, .line = 0 },
+            .lines = .empty,
+            .line_widgets = .empty,
+            .file = "",
+            .children = &.{},
+            .scroll_bars = .{
+                .scroll_view = .{
+                    .children = .{
+                        .builder = .{
+                            .userdata = editor,
+                            .buildFn = Editor.editorLineWidgetBuilder,
+                        },
+                    },
+                    .wheel_scroll = 1,
+                },
+            },
+            .gpa = gpa,
+            .arena_state = std.heap.ArenaAllocator.init(gpa),
+        };
+
+        return editor;
+    }
+
+    pub fn deinit(self: *Editor) void {
+        for (self.lines.items) |*l| {
+            l.text.deinit(self.gpa);
+        }
+        self.lines.deinit(self.gpa);
+        self.line_widgets.deinit(self.gpa);
+        self.arena_state.deinit();
+    }
 
     pub fn widget(self: *Editor) vxfw.Widget {
         return .{
@@ -70,7 +105,7 @@ pub const Editor = struct {
         return try self.draw(ctx);
     }
 
-    pub fn load_file(self: *Editor, file_path: []const u8) !void {
+    pub fn loadFile(self: *Editor, file_path: []const u8) !void {
         // 1. Reset line storage and open file.
 
         for (self.lines.items) |*line| {
@@ -135,7 +170,7 @@ pub const Editor = struct {
     }
 
     /// Save the text that's currently being worked on to the open file.
-    pub fn save_file(self: *Editor) !void {
+    pub fn saveFile(self: *Editor) !void {
         // If we're working in a scratch buffer there's nothing to do.
         // FIXME: Add a pop-up that asks the user if they want to write contents to a file.
         if (self.file.len == 0) return;
@@ -143,7 +178,7 @@ pub const Editor = struct {
         // 1. Get the text from the buffer.
 
         // FIXME: Use a `Writer` instead of writing a bunch of bytes straight to the file.
-        const text_to_format = try self.get_all_text(self.gpa);
+        const text_to_format = try self.getAllText(self.gpa);
         defer self.gpa.free(text_to_format);
 
         // 2. Open the file we're going to save to. Create it if it doesn't exist. Make sure file is
@@ -231,15 +266,15 @@ pub const Editor = struct {
         // Reload the file to get updated file content.
         // FIXME: Update the current file text in-place instead of reloading and re-reading the
         //        file.
-        try self.load_file(self.file);
+        try self.loadFile(self.file);
 
-        self.ensure_cursor_is_valid();
+        self.ensureCursorIsValid();
 
-        try self.update_line_widgets();
+        try self.updateLineWidgets();
     }
 
     /// Make sure the cursor is in a valid position, and moves it to a valid position if it's not.
-    pub fn ensure_cursor_is_valid(self: *Editor) void {
+    pub fn ensureCursorIsValid(self: *Editor) void {
         // Make sure editor cursor is still valid.
         self.cursor.line = @min(self.cursor.line, self.len() - 1);
         const current_line = self.lines.items[self.cursor.line];
@@ -249,11 +284,11 @@ pub const Editor = struct {
         self.scroll_bars.scroll_view.cursor = @intCast(self.cursor.line);
     }
 
-    pub fn scroll_up(self: *Editor, number_of_lines: u8) void {
+    pub fn scrollUp(self: *Editor, number_of_lines: u8) void {
         _ = self.scroll_bars.scroll_view.scroll.linesUp(number_of_lines);
     }
 
-    pub fn scroll_down(self: *Editor, number_of_lines: u8) void {
+    pub fn scrollDown(self: *Editor, number_of_lines: u8) void {
         _ = self.scroll_bars.scroll_view.scroll.linesDown(number_of_lines);
     }
 
@@ -450,7 +485,7 @@ pub const Editor = struct {
         }
 
         // Update the line widgets only right before we redraw the text on screen.
-        if (ctx.redraw) try self.update_line_widgets();
+        if (ctx.redraw) try self.updateLineWidgets();
     }
 
     /// Re-creates the list of RichText widgets used to render file contents.
@@ -459,11 +494,11 @@ pub const Editor = struct {
     ///        multiple styled spans. When we get to that point we'll want to only modify
     ///        the spans in the line that's been changed, and do this when the key event is
     ///        is handled.
-    pub fn update_line_widgets(self: *Editor) !void {
+    pub fn updateLineWidgets(self: *Editor) !void {
         // 1. Reset the memory arena.
 
-        _ = self.arena.reset(.retain_capacity);
-        const allocator = self.arena.allocator();
+        _ = self.arena_state.reset(.retain_capacity);
+        const arena = self.arena_state.allocator();
 
         // 2. Clear the current widgets.
 
@@ -508,10 +543,10 @@ pub const Editor = struct {
             if (line.len() == 0) {
                 // Length of the spacing buffer is:
                 // 101 + (length of the box-drawing glyph) = 101 + 3.
-                const spacing_buf = try allocator.alloc(u8, 101 + 3);
+                const spacing_buf = try arena.alloc(u8, 101 + 3);
                 @memset(spacing_buf, ' ');
                 std.mem.copyForwards(u8, spacing_buf[100..], "\u{2502}");
-                try spans.append(allocator, .{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
+                try spans.append(arena, .{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
                 try self.line_widgets.append(self.gpa, .{ .text = spans.items, .softwrap = false });
                 continue;
             }
@@ -520,7 +555,7 @@ pub const Editor = struct {
 
             // FIXME: Replace tabs with something other than 4-spaces during render?
             const new_size = std.mem.replacementSize(u8, line.text.items, "\t", TAB_REPLACEMENT);
-            const buf = try allocator.alloc(u8, new_size);
+            const buf = try arena.alloc(u8, new_size);
             _ = std.mem.replace(u8, line.text.items, "\t", TAB_REPLACEMENT, buf);
 
             var symbol_it = std.mem.tokenizeAny(
@@ -535,17 +570,17 @@ pub const Editor = struct {
                 std.mem.startsWith(u8, symbol_it.peek().?, "//"))
             {
                 // First add the comment text.
-                try spans.append(allocator, .{ .text = buf, .style = comment_style });
+                try spans.append(arena, .{ .text = buf, .style = comment_style });
 
                 // Then add the bar at column 101, if applicable.
                 if (line.len() < 101) {
                     // Length of the spacing buffer is:
                     // 101 + (length of the box-drawing glyph) - (line length) = 101 + 3 - line.len.
                     const spacing_buf_len = 101 + 3 - line.len();
-                    const spacing_buf = try allocator.alloc(u8, spacing_buf_len);
+                    const spacing_buf = try arena.alloc(u8, spacing_buf_len);
                     @memset(spacing_buf, ' ');
                     std.mem.copyForwards(u8, spacing_buf[spacing_buf_len -| 4..], "\u{2502}");
-                    try spans.append(allocator, .{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
+                    try spans.append(arena, .{ .text = spacing_buf, .style = .{ .fg = c_mocha.red } });
                 }
 
                 try self.line_widgets.append(self.gpa, .{ .text = spans.items, .softwrap = false });
@@ -569,18 +604,18 @@ pub const Editor = struct {
                     default_style;
 
                 // First add a span for any whitespace leading up to the current symbol.
-                try spans.append(allocator, .{
+                try spans.append(arena, .{
                     .text = buf[idx .. symbol_it.index - symbol.len],
                     .style = default_style,
                 });
 
                 // Then add the current symbol.
-                try spans.append(allocator, .{ .text = symbol, .style = style });
+                try spans.append(arena, .{ .text = symbol, .style = style });
             } else {
                 // Add an empty span so there's something rendered for lines that only contain
                 // whitespace.
                 if (idx == 0) {
-                    try spans.append(allocator, .{ .text = "" });
+                    try spans.append(arena, .{ .text = "" });
                 }
             }
 
@@ -592,10 +627,10 @@ pub const Editor = struct {
                 // or 3, whichever value is higher. We need at least 3 length to make space for the
                 // box drawing character.
                 const spacing_buffer_len = @max(101 + 3 - idx, 3);
-                const spacing_buffer = try allocator.alloc(u8, spacing_buffer_len);
+                const spacing_buffer = try arena.alloc(u8, spacing_buffer_len);
                 @memset(spacing_buffer, ' ');
                 std.mem.copyForwards(u8, spacing_buffer[spacing_buffer_len -| 4..], "\u{2502}");
-                try spans.append(allocator, .{ .text = spacing_buffer, .style = .{ .fg = c_mocha.red } });
+                try spans.append(arena, .{ .text = spacing_buffer, .style = .{ .fg = c_mocha.red } });
             }
 
             // 8. Add the spans to the list of line widgets.
@@ -607,7 +642,7 @@ pub const Editor = struct {
         }
     }
 
-    pub fn editor_line_widget_builder(ptr: *const anyopaque, idx: usize, _: usize) ?vxfw.Widget {
+    pub fn editorLineWidgetBuilder(ptr: *const anyopaque, idx: usize, _: usize) ?vxfw.Widget {
         const self: *const Editor = @ptrCast(@alignCast(ptr));
 
         if (idx >= self.line_widgets.items.len) return null;
@@ -674,7 +709,7 @@ pub const Editor = struct {
         };
     }
 
-    pub fn get_all_text(self: *Editor, allocator: std.mem.Allocator) ![]u8 {
+    pub fn getAllText(self: *Editor, allocator: std.mem.Allocator) ![]u8 {
         // NOTE: No need to deinit because we return the value from `.toOwnedSlice()`.
         var text: std.ArrayListUnmanaged(u8) = .empty;
 
@@ -701,7 +736,7 @@ pub const Editor = struct {
     ///   |        |- middle of the line is also valid.
     ///   |
     ///   |- start of the line (column == 0) must also be valid.
-    fn assert_position_is_valid(self: *Editor, pos: Position) void {
+    fn assertPositionIsValid(self: *Editor, pos: Position) void {
         // 1. Assert that the line position is valid.
         std.debug.assert(pos.line >= 0 and pos.line < self.lines.items.len);
 
@@ -745,7 +780,7 @@ pub const Editor = struct {
 
         // 5. Update the line widgets.
 
-        try self.update_line_widgets();
+        try self.updateLineWidgets();
     }
 
     /// Delete the character before the current cursor.
@@ -1088,7 +1123,7 @@ pub const Editor = struct {
 
     /// Moves the cursor behind the character at position `pos`. Asserts that the position is valid.
     fn move_cursor_to(self: *Editor, pos: Position) void {
-        self.assert_position_is_valid(pos);
+        self.assertPositionIsValid(pos);
 
         self.cursor.line = pos.line;
         self.cursor.column = pos.column;
@@ -1099,7 +1134,7 @@ pub const Editor = struct {
     /// Insert a new line behind the character at position `pos`. Asserts that the position is
     /// valid.
     fn insert_new_line_at(self: *Editor, pos: Position) !void {
-        self.assert_position_is_valid(pos);
+        self.assertPositionIsValid(pos);
 
         // 1. Get the line at `pos`.
         var current_line = &self.lines.items[pos.line];
