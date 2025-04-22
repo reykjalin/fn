@@ -63,15 +63,15 @@ pub fn main() !void {
     // If we have more than 1 argument, use the last argument as the file to open.
     if (args.len > 1) {
         const file_path = args[args.len - 1];
-        try fonn.editor.loadFile(file_path);
+        try fonn.editor_widget.editor.openFile(gpa, file_path);
     } else {
         // Load an empty file just to initialize the lines correctly.
-        try fonn.editor.loadFile("");
+        try fonn.editor_widget.editor.openFile(gpa, "");
     }
 
     // Prepare the widgets used to draw the text on the first render.
     // FIXME: there might be a better way to do this? Or at least a better time to do this.
-    try fonn.editor.updateLineWidgets();
+    try fonn.editor_widget.updateLineWidgets();
 
     // Free fn state.
     defer fonn.deinit();

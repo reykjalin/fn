@@ -38,7 +38,7 @@ filename: std.ArrayListUnmanaged(u8),
 text: std.ArrayListUnmanaged(u8),
 /// The start position of each line in the content buffer using a byte-position. **Modifying this
 /// will cause undefined behavior**. This will automatically be kept up to date by helper methods.
-lines: std.ArrayListUnmanaged(Pos),
+line_indexes: std.ArrayListUnmanaged(Pos),
 /// An array of tokens in the text. The text will be tokenized every time it changes. **Modifying
 /// this will cause undefined behavior**. The default tokenization has the whole text set to a
 /// simple `Text` type.
@@ -73,7 +73,7 @@ pub fn init(allocator: Allocator) !Editor {
 
     return .{
         .filename = .empty,
-        .lines = lines,
+        .line_indexes = lines,
         .selections = selections,
         .text = .empty,
         .tokens = tokens,
@@ -82,7 +82,7 @@ pub fn init(allocator: Allocator) !Editor {
 
 pub fn deinit(self: *Editor, allocator: Allocator) void {
     self.filename.deinit(allocator);
-    self.lines.deinit(allocator);
+    self.line_indexes.deinit(allocator);
     self.selections.deinit(allocator);
     self.text.deinit(allocator);
     self.tokens.deinit(allocator);
@@ -122,6 +122,92 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
     // 6. Tokenize the new text.
 
     try self.tokenize(allocator);
+}
+
+/// Saves the text to the current location based on the `filename` field.
+pub fn saveFile(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Moves each selection up one line. Selections will be collapsed to the cursor before they're
+/// moved.
+pub fn moveSelectionsUp(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Moves each selection down one line. Selections will be collapsed to the cursor before they're
+/// moved.
+pub fn moveSelectionsDown(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Moves each selection left one character. Selections will be collapsed to the cursor before
+/// they're moved.
+pub fn moveSelectionsLeft(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Moves each selection right one character. Selections will be collapsed to the cursor before
+/// they're moved.
+pub fn moveSelectionsRight(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Collapses each selection to its cursor and moves it to the start of the line. If the cursor is
+/// already at the start of the line it will be moved to the end of the previous line.
+pub fn moveSelectionsToStartOfLine(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Collapses each selection to its cursor and moves it to the end of the line. If the cursor is
+/// already at the end of the line it will be moved to the start of the next line.
+pub fn moveSelectionsToEndOfLine(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Selects the word that comes after each selection's cursor. Behavior varies depending on cursor
+/// location for each selection:
+///
+/// 1. If the cursor is at the start of a word, the selection will start from that position and go
+///    to the end of the word.
+/// 2. If the cursor is inside a word, the selection will start from that position and go to the end
+///    of the word.
+/// 3. If the cursor is at the end of a word, the selection will start at the beginning of the  next
+///    word and go to the end of that word.
+/// 4. If the cursor is in the whitespace immediately before a word, the selection will start at the
+///    beginning of the next word and go to the end of that word.
+/// 5. If the cursor is in long whitespace (> 1 space), and not at the position right before the
+///    following word, the selection will start at the current cursor's position, and go to the
+///    beginning of the following word.
+pub fn selectNextWord(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Selects the word that comes before each selection's cursor. Behavior varies depending on cursor
+/// location for each selection:
+///
+/// 1. If the cursor is at the start of a word, the selection starts at that position and goes to the start of the preceding word.
+/// 2. If the cursor is inside a word, the selection will start from that position and go to the beginning of that word.
+/// 3. If the cursor is in the whitespace following a word, the selection will start from that position and go to the beginning of the preceding word.
+pub fn selectPreviousWord(self: *Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
+/// Deletes everything in front of each cursor until the start of each cursor's line.
+/// If cursor is already at the start of the line, it should delete the newline in front of it.
+pub fn deleteToStartOfLine(self: *Editor) void {
+    _ = self;
+
+    // TODO: implement.
 }
 
 /// Deletes the character immediately before the cursor.
@@ -265,6 +351,23 @@ pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
     }
 }
 
+pub fn lineCount(self: *const Editor) usize {
+    return self.line_indexes.items.len;
+}
+
+/// Inserts the provided text at the cursor location for each selection. Selectiosn will not be
+/// cleared. If the anchor comes before the cursor the selection will expand to include the newly
+/// inserted text. If the anchor comes after the cursor the text will be inserted before the
+/// selection, and the selection moved with the new content such that it will still select the same
+/// text.
+pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8) !void {
+    _ = self;
+    _ = allocator;
+    _ = text;
+
+    // TODO: implement.
+}
+
 /// Inserts the provided text before all selections. Selections will not be cleared, and will
 /// instead move with the content such that they will still select the same text.
 pub fn insertTextBeforeSelection(self: *Editor, allocator: Allocator, text: []const u8) !void {
@@ -327,17 +430,17 @@ fn tokenize(self: *Editor, allocator: Allocator) !void {
 
 /// Updates the indeces for the start of each line in the text.
 fn updateLines(self: *Editor, allocator: Allocator) !void {
-    self.lines.clearRetainingCapacity();
-    try self.lines.append(allocator, .fromInt(0));
+    self.line_indexes.clearRetainingCapacity();
+    try self.line_indexes.append(allocator, .fromInt(0));
 
     // NOTE: We start counting from 1 because we consider the start of a line to be **after** a
     //       newline character, not before.
     for (self.text.items, 1..) |char, i| {
-        if (char == '\n') try self.lines.append(allocator, .fromInt(i));
+        if (char == '\n') try self.line_indexes.append(allocator, .fromInt(i));
     }
 }
 
-/// Converts the provided `BytePos` object to a `Pos`.
+/// Converts the provided `Pos` object to a `CoordinatePos`.
 pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
     // 1. Assert that the provided position is valid.
 
@@ -349,7 +452,7 @@ pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
 
     const row: usize = row: {
         var row: usize = 0;
-        for (self.lines.items, 0..) |lineStartIndex, i| {
+        for (self.line_indexes.items, 0..) |lineStartIndex, i| {
             // If we're past the provided byte-level position then we know the previous position was the
             // correct row_index.
             if (lineStartIndex.comesAfter(pos)) break :row row;
@@ -357,13 +460,13 @@ pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
         }
 
         // If haven't found the position in the loop, we can safely use the last line.
-        break :row self.lines.items.len -| 1;
+        break :row self.line_indexes.items.len -| 1;
     };
 
     // 3. Use the byte-level position of the start of the row to calculate the column of the
     //    provided position.
 
-    const startOfRowIndex: Pos = self.lines.items[row];
+    const startOfRowIndex: Pos = self.line_indexes.items[row];
 
     return .{ .row = row, .col = pos.toInt() -| startOfRowIndex.toInt() };
 }
@@ -403,6 +506,33 @@ test toCoordinatePos {
     try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 3 }, editor.toCoordinatePos(.fromInt(11)));
 
     try std.testing.expectEqual(CoordinatePos{ .row = 3, .col = 0 }, editor.toCoordinatePos(.fromInt(12)));
+}
+
+test lineCount {
+    var editor = try Editor.init(talloc);
+    defer editor.deinit(talloc);
+
+    try std.testing.expectEqual(1, editor.lineCount());
+
+    try editor.text.appendSlice(talloc, "012");
+    try editor.updateLines(talloc);
+
+    try std.testing.expectEqual(1, editor.lineCount());
+
+    try editor.text.appendSlice(talloc, "\n345\n");
+    try editor.updateLines(talloc);
+
+    try std.testing.expectEqual(3, editor.lineCount());
+
+    try editor.text.appendSlice(talloc, "678");
+    try editor.updateLines(talloc);
+
+    try std.testing.expectEqual(3, editor.lineCount());
+
+    try editor.text.appendSlice(talloc, "\n\n");
+    try editor.updateLines(talloc);
+
+    try std.testing.expectEqual(5, editor.lineCount());
 }
 
 test insertTextBeforeSelection {
@@ -1227,11 +1357,11 @@ test updateLines {
     try editor.updateLines(talloc);
 
     // We should always have at least one line.
-    try std.testing.expectEqual(1, editor.lines.items.len);
+    try std.testing.expectEqual(1, editor.line_indexes.items.len);
     try std.testing.expectEqualSlices(
         Pos,
         &.{.fromInt(0)},
-        editor.lines.items,
+        editor.line_indexes.items,
     );
 
     // 2. One line.
@@ -1242,7 +1372,7 @@ test updateLines {
     try std.testing.expectEqualSlices(
         Pos,
         &.{.fromInt(0)},
-        editor.lines.items,
+        editor.line_indexes.items,
     );
 
     editor.text.clearRetainingCapacity();
@@ -1255,7 +1385,7 @@ test updateLines {
     try std.testing.expectEqualSlices(
         Pos,
         &.{ .fromInt(0), .fromInt(4) },
-        editor.lines.items,
+        editor.line_indexes.items,
     );
 
     editor.text.clearRetainingCapacity();
@@ -1268,7 +1398,7 @@ test updateLines {
     try std.testing.expectEqualSlices(
         Pos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(8) },
-        editor.lines.items,
+        editor.line_indexes.items,
     );
 
     editor.text.clearRetainingCapacity();
@@ -1281,7 +1411,7 @@ test updateLines {
     try std.testing.expectEqualSlices(
         Pos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(8), .fromInt(12) },
-        editor.lines.items,
+        editor.line_indexes.items,
     );
 
     editor.text.clearRetainingCapacity();
@@ -1294,7 +1424,7 @@ test updateLines {
     try std.testing.expectEqualSlices(
         Pos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(5), .fromInt(6), .fromInt(9), .fromInt(10) },
-        editor.lines.items,
+        editor.line_indexes.items,
     );
 }
 

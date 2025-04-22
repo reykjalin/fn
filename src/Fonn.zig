@@ -16,7 +16,7 @@ const button_styles: struct {
 
 pub const Fonn = @This();
 
-editor: *editor_lib.Editor,
+editor_widget: *editor_lib.EditorWidget,
 menu_bar: mb.MenuBar,
 gpa: std.mem.Allocator,
 children: []vxfw.SubSurface,
@@ -33,10 +33,10 @@ pub fn widget(self: *Fonn) vxfw.Widget {
 pub fn init(gpa: std.mem.Allocator) !*Fonn {
     var fonn = try gpa.create(Fonn);
 
-    const editor_widget: *editor_lib.Editor = try .init(gpa);
+    const editor_widget: *editor_lib.EditorWidget = try .init(gpa);
 
     fonn.* = .{
-        .editor = editor_widget,
+        .editor_widget = editor_widget,
         .menu_bar = .{
             .menus = try gpa.alloc(*mb.Menu, 2),
         },
@@ -161,8 +161,8 @@ pub fn setupMenuBar(self: *Fonn) !void {
 }
 
 pub fn deinit(self: *Fonn) void {
-    self.editor.deinit();
-    self.gpa.destroy(self.editor);
+    self.editor_widget.deinit();
+    self.gpa.destroy(self.editor_widget);
 
     for (self.menu_bar.menus) |menu| {
         for (menu.actions) |action_button| {
@@ -186,7 +186,7 @@ pub fn onOpen(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         self.closeMenus();
 
         // Re-focus the editor.
-        try ctx.requestFocus(self.editor.widget());
+        try ctx.requestFocus(self.editor_widget.widget());
         // Make sure we consume the event and redraw after the menus are closed.
         ctx.consumeAndRedraw();
     }
@@ -201,7 +201,7 @@ pub fn onSave(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         self.closeMenus();
 
         // Re-focus the editor.
-        try ctx.requestFocus(self.editor.widget());
+        try ctx.requestFocus(self.editor_widget.widget());
         // Make sure we consume the event and redraw after the menus are closed.
         ctx.consumeAndRedraw();
     }
@@ -219,7 +219,7 @@ pub fn onCopy(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         self.closeMenus();
 
         // Re-focus the editor.
-        try ctx.requestFocus(self.editor.widget());
+        try ctx.requestFocus(self.editor_widget.widget());
         // Make sure we consume the event and redraw after the menus are closed.
         ctx.consumeAndRedraw();
     }
@@ -232,7 +232,7 @@ pub fn onPaste(ptr: ?*anyopaque, ctx: *vxfw.EventContext) anyerror!void {
         self.closeMenus();
 
         // Re-focus the editor.
-        try ctx.requestFocus(self.editor.widget());
+        try ctx.requestFocus(self.editor_widget.widget());
         // Make sure we consume the event and redraw after the menus are closed.
         ctx.consumeAndRedraw();
     }
@@ -245,7 +245,7 @@ fn closeMenus(self: *Fonn) void {
 }
 
 fn saveFile(self: *Fonn) !void {
-    try self.editor.saveFile();
+    self.editor_widget.editor.saveFile();
 }
 
 fn typeErasedCaptureHandler(
@@ -286,7 +286,7 @@ fn typeErasedEventHandler(
 
     switch (event) {
         .init => {
-            return ctx.requestFocus(self.editor.widget());
+            return ctx.requestFocus(self.editor_widget.widget());
         },
         .focus_out => {
             try ctx.setMouseShape(.default);
@@ -324,7 +324,7 @@ fn typeErasedDrawFn(
         .{ .width = max.width, .height = max.height },
         .{ .width = max.width, .height = max.height },
     ));
-    const editor_surface = try self.editor.widget().draw(ctx.withConstraints(
+    const editor_surface = try self.editor_widget.widget().draw(ctx.withConstraints(
         .{ .width = max.width, .height = max.height - 1 },
         .{ .width = max.width, .height = max.height - 1 },
     ));
