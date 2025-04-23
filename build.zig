@@ -5,6 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
+    const ltf_dep = b.dependency("log_to_file", .{ .target = target, .optimize = optimize });
 
     const exe = b.addExecutable(.{
         .name = "fn",
@@ -14,6 +15,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.addImport("vaxis", vaxis_dep.module("vaxis"));
+    exe.root_module.addImport("log_to_file", ltf_dep.module("log_to_file"));
 
     b.installArtifact(exe);
 

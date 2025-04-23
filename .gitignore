@@ -3,5 +3,5 @@
 zig-out
 
 # Project specific ignores.
-log
+logs
 test

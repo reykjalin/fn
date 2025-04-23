@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 const builtin = @import("builtin");
+const ltf = @import("log_to_file");
 
 const Fonn = @import("./Fonn.zig");
 const editor = @import("./editor.zig");
@@ -15,7 +16,10 @@ pub const std_options: std.Options = if (builtin.mode == .Debug) .{
         .{ .scope = .vaxis, .level = .info },
         .{ .scope = .vaxis_parser, .level = .info },
     },
-} else .{};
+    .logFn = ltf.log_to_file,
+} else .{
+    .logFn = ltf.log_to_file,
+};
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
