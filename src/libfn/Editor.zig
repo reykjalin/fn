@@ -130,6 +130,11 @@ pub fn saveFile(self: *Editor) void {
     // TODO: implement.
 }
 
+pub fn copySelectionsContent(self: *const Editor) void {
+    _ = self;
+    // TODO: implement.
+}
+
 /// Moves each selection up one line. Selections will be collapsed to the cursor before they're
 /// moved.
 pub fn moveSelectionsUp(self: *Editor) void {

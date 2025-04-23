@@ -9,11 +9,17 @@ const c_mocha = @import("./themes/catppuccin-mocha.zig");
 
 pub const TAB_REPLACEMENT = "        ";
 
+const Mode = enum {
+    normal,
+    insert,
+};
+
 pub const EditorWidget = struct {
     editor: Editor,
     line_widgets: std.ArrayListUnmanaged(vxfw.RichText),
     scroll_bars: vxfw.ScrollBars,
     children: []vxfw.SubSurface,
+    mode: Mode = .normal,
 
     gpa: std.mem.Allocator,
     arena_state: std.heap.ArenaAllocator,
@@ -166,76 +172,111 @@ pub const EditorWidget = struct {
                 try self.editor.insertTextBeforeSelection(self.gpa, pasted_text);
             },
             .key_press => |key| {
-                // FIXME: Ensure primary selection is visible in scroll view after edits.
-                if (key.matches(vaxis.Key.enter, .{})) {
-                    try self.editor.insertTextAtCursors(self.gpa, "\n");
+                switch (self.mode) {
+                    .normal => {
+                        if (key.matches('h', .{}) or key.matches(vaxis.Key.left, .{})) {
+                            self.editor.moveSelectionsLeft();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('l', .{}) or key.matches(vaxis.Key.right, .{})) {
+                            self.editor.moveSelectionsRight();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('j', .{}) or key.matches(vaxis.Key.down, .{})) {
+                            self.editor.moveSelectionsDown();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('k', .{}) or key.matches(vaxis.Key.up, .{})) {
+                            self.editor.moveSelectionsUp();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('w', .{})) {
+                            self.editor.selectNextWord();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('b', .{})) {
+                            self.editor.selectPreviousWord();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('d', .{})) {
+                            self.editor.copySelectionsContent();
+                            try self.editor.deleteCharacterBeforeCursors(self.gpa);
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches('i', .{})) {
+                            self.mode = .insert;
+                            ctx.consumeAndRedraw();
+                        }
+                    },
+                    .insert => {
+                        // FIXME: Ensure primary selection is visible in scroll view after edits.
+                        if (key.matches(vaxis.Key.escape, .{})) {
+                            self.mode = .normal;
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.enter, .{})) {
+                            try self.editor.insertTextAtCursors(self.gpa, "\n");
 
-                    // We need to make sure we redraw the widget after changing the text.
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.tab, .{})) {
-                    const spacing = if (std.mem.eql(
-                        u8,
-                        ".zig",
-                        std.fs.path.extension(self.editor.filename.items),
-                    ))
-                        "    "
-                    else
-                        "\t";
+                            // We need to make sure we redraw the widget after changing the text.
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.tab, .{})) {
+                            const spacing = if (std.mem.eql(
+                                u8,
+                                ".zig",
+                                std.fs.path.extension(self.editor.filename.items),
+                            ))
+                                "    "
+                            else
+                                "\t";
 
-                    try self.editor.insertTextAtCursors(self.gpa, spacing);
+                            try self.editor.insertTextAtCursors(self.gpa, spacing);
 
-                    // We need to make sure we redraw the widget after changing the text.
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.backspace, .{ .super = true })) {
-                    self.editor.deleteToStartOfLine();
+                            // We need to make sure we redraw the widget after changing the text.
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.backspace, .{ .super = true })) {
+                            self.editor.deleteToStartOfLine();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.backspace, .{})) {
-                    try self.editor.deleteCharacterBeforeCursors(self.gpa);
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.backspace, .{})) {
+                            try self.editor.deleteCharacterBeforeCursors(self.gpa);
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.left, .{ .alt = true })) {
-                    self.editor.selectPreviousWord();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.left, .{ .alt = true })) {
+                            self.editor.selectPreviousWord();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.left, .{})) {
-                    self.editor.moveSelectionsLeft();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.left, .{})) {
+                            self.editor.moveSelectionsLeft();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.right, .{ .alt = true })) {
-                    self.editor.selectNextWord();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.right, .{ .alt = true })) {
+                            self.editor.selectNextWord();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.right, .{})) {
-                    self.editor.moveSelectionsRight();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.right, .{})) {
+                            self.editor.moveSelectionsRight();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.up, .{})) {
-                    self.editor.moveSelectionsUp();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.up, .{})) {
+                            self.editor.moveSelectionsUp();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.down, .{})) {
-                    self.editor.moveSelectionsDown();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.down, .{})) {
+                            self.editor.moveSelectionsDown();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.left, .{ .super = true }) or
-                    key.matches('a', .{ .ctrl = true }))
-                {
-                    self.editor.moveSelectionsToStartOfLine();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.left, .{ .super = true }) or
+                            key.matches('a', .{ .ctrl = true }))
+                        {
+                            self.editor.moveSelectionsToStartOfLine();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.matches(vaxis.Key.right, .{ .super = true }) or
-                    key.matches('e', .{ .ctrl = true }))
-                {
-                    self.editor.moveSelectionsToEndOfLine();
+                            ctx.consumeAndRedraw();
+                        } else if (key.matches(vaxis.Key.right, .{ .super = true }) or
+                            key.matches('e', .{ .ctrl = true }))
+                        {
+                            self.editor.moveSelectionsToEndOfLine();
 
-                    ctx.consumeAndRedraw();
-                } else if (key.text) |t| {
-                    std.log.debug("inserting text: '{s}'", .{t});
-                    try self.editor.insertTextAtCursors(self.gpa, t);
+                            ctx.consumeAndRedraw();
+                        } else if (key.text) |t| {
+                            std.log.debug("inserting text: '{s}'", .{t});
+                            try self.editor.insertTextAtCursors(self.gpa, t);
 
-                    // We need to make sure we redraw the widget after changing the text.
-                    ctx.consumeAndRedraw();
+                            // We need to make sure we redraw the widget after changing the text.
+                            ctx.consumeAndRedraw();
+                        }
+                    },
                 }
 
                 if (!ctx.consume_event) try self.scroll_bars.scroll_view.handleEvent(ctx, event);
@@ -333,7 +374,7 @@ pub const EditorWidget = struct {
             cursor_state = .{
                 .row = row,
                 .col = @truncate(screen_cursor_column),
-                .shape = .beam_blink,
+                .shape = if (self.mode == .insert) .beam_blink else .block,
             };
         }
 
