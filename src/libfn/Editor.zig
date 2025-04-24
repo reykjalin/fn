@@ -135,6 +135,28 @@ pub fn copySelectionsContent(self: *const Editor) void {
     // TODO: implement.
 }
 
+/// Moves cursor before anchor for all selections.
+pub fn moveCursorBeforeAnchorForAllSelections(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        if (!s.cursor.comesBefore(s.anchor)) {
+            const old_anchor = s.anchor;
+            s.anchor = s.cursor;
+            s.cursor = old_anchor;
+        }
+    }
+}
+
+/// Moves cursor after anchor for all selections.
+pub fn moveCursorAfterAnchorForAllSelections(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        if (!s.cursor.comesAfter(s.anchor)) {
+            const old_anchor = s.anchor;
+            s.anchor = s.cursor;
+            s.cursor = old_anchor;
+        }
+    }
+}
+
 /// Moves each selection up one line. Selections will be collapsed to the cursor before they're
 /// moved.
 pub fn moveSelectionsUp(self: *Editor) void {

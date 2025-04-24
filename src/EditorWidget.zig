@@ -192,13 +192,18 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                         try self.editor.deleteCharacterBeforeCursors(self.gpa);
                         ctx.consumeAndRedraw();
                     } else if (key.matches('i', .{})) {
+                        self.editor.moveCursorBeforeAnchorForAllSelections();
+                        self.mode = .insert;
+                        ctx.consumeAndRedraw();
+                    } else if (key.matches('a', .{})) {
+                        self.editor.moveCursorAfterAnchorForAllSelections();
                         self.mode = .insert;
                         ctx.consumeAndRedraw();
                     }
                 },
                 .insert => {
                     // FIXME: Ensure primary selection is visible in scroll view after edits.
-                    if (key.matches(vaxis.Key.escape, .{})) {
+                    if (key.matches(vaxis.Key.escape, .{}) or key.matches('c', .{ .ctrl = true })) {
                         self.mode = .normal;
                         ctx.consumeAndRedraw();
                     } else if (key.matches(vaxis.Key.enter, .{})) {
