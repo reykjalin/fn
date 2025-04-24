@@ -1,5 +1,7 @@
 # ❄️ Fönn
 
+[![Build and run Fönn tests](https://github.com/reykjalin/fn/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/reykjalin/fn/actions/workflows/tests.yml) [![builds.sr.ht status](https://builds.sr.ht/~reykjalin/fn/commits/main/tests.yml.svg)](https://builds.sr.ht/~reykjalin/fn/commits/main/tests.yml?)
+
 A code editor for _fun_.
 
 ![Screenshot of the fn TUI modifying its own source code](./screenshots/fn.webp)
