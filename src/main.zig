@@ -84,3 +84,7 @@ pub fn main() !void {
     try app.run(fonn.widget(), .{});
     app.deinit();
 }
+
+test "refAllDecls" {
+    std.testing.refAllDeclsRecursive(@This());
+}

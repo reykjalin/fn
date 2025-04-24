@@ -9,8 +9,8 @@
             .hash = "vaxis-0.1.0-BWNV_JEMCQBskZQsnlzh6GoyHSDgOi41bCoZIB2pW-E7",
         },
         .log_to_file = .{
-            .url = "git+https://git.sr.ht/~reykjalin/log_to_file.zig#0ab04e6ca63008907d02eb7950eaeebb3c128312",
-            .hash = "log_to_file-2.0.0-vcE8A3AqAAClysKWf8p072tbP4N_jyYW6N7l2oDn-bF9",
+            .url = "https://github.com/reykjalin/log_to_file.zig/archive/refs/tags/2.0.0.zip",
+            .hash = "log_to_file-2.0.0-vcE8A98wAAAo8BOvkPaEKIwpvGqXwpAVLzpmAL6myrHS",
         },
     },
     .paths = .{""},
