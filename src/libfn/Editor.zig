@@ -199,9 +199,12 @@ pub fn selectNextWord(self: *Editor) void {
 /// Selects the word that comes before each selection's cursor. Behavior varies depending on cursor
 /// location for each selection:
 ///
-/// 1. If the cursor is at the start of a word, the selection starts at that position and goes to the start of the preceding word.
-/// 2. If the cursor is inside a word, the selection will start from that position and go to the beginning of that word.
-/// 3. If the cursor is in the whitespace following a word, the selection will start from that position and go to the beginning of the preceding word.
+/// 1. If the cursor is at the start of a word, the selection starts at that position and goes to
+///    the start of the preceding word.
+/// 2. If the cursor is inside a word, the selection will start from that position and go to the
+///    beginning of that word.
+/// 3. If the cursor is in the whitespace following a word, the selection will start from that
+///    position and go to the beginning of the preceding word.
 pub fn selectPreviousWord(self: *Editor) void {
     _ = self;
     // TODO: implement.
@@ -213,6 +216,33 @@ pub fn deleteToStartOfLine(self: *Editor) void {
     _ = self;
 
     // TODO: implement.
+}
+
+/// Returns the primary selection.
+pub fn getPrimarySelection(self: *const Editor) Selection {
+    std.debug.assert(self.selections.items.len > 0);
+    return self.selections.items[0];
+}
+
+/// Returns the requested 0-indexed line. Asserts that the line is a valid line number. The editor
+/// owns the memory returned, caller must not change or free the returned text.
+pub fn getLine(self: *const Editor, line: usize) []const u8 {
+    std.debug.assert(line < self.line_indexes.items.len);
+
+    const start_idx = self.line_indexes.items[line].toInt();
+    const end_idx = if (line < self.line_indexes.items.len -| 1)
+        self.line_indexes.items[line + 1].toInt() -| 1
+    else
+        self.text.items.len;
+
+    std.debug.assert(start_idx <= end_idx);
+
+    return self.text.items[start_idx..end_idx];
+}
+
+/// Returns all the text in the current file. Caller owns the memory and must free.
+pub fn getAllTextOwned(self: *const Editor, allocator: Allocator) ![]const u8 {
+    return try allocator.dupe(u8, self.text.items);
 }
 
 /// Deletes the character immediately before the cursor.
@@ -1430,6 +1460,35 @@ test updateLines {
         Pos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(5), .fromInt(6), .fromInt(9), .fromInt(10) },
         editor.line_indexes.items,
+    );
+}
+
+test "getLine" {
+    var editor = try Editor.init(talloc);
+    defer editor.deinit(talloc);
+
+    try editor.text.appendSlice(talloc, "012\n345\n456\n\n");
+    try editor.updateLines(talloc);
+
+    try std.testing.expectEqualStrings(
+        "012",
+        editor.getLine(0),
+    );
+    try std.testing.expectEqualStrings(
+        "345",
+        editor.getLine(1),
+    );
+    try std.testing.expectEqualStrings(
+        "456",
+        editor.getLine(2),
+    );
+    try std.testing.expectEqualStrings(
+        "",
+        editor.getLine(3),
+    );
+    try std.testing.expectEqualStrings(
+        "",
+        editor.getLine(4),
     );
 }
 

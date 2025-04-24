@@ -116,14 +116,7 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                 else
                     self.editor.lineCount() - 1;
 
-                const clicked_line_start_index = self.editor.line_indexes.items[row].toInt();
-                const clicked_line_end_index =
-                    if (clicked_row < self.editor.lineCount() -| 1)
-                        self.editor.line_indexes.items[clicked_row +| 1].toInt() -| 1
-                    else
-                        self.editor.text.items.len;
-                const clicked_line =
-                    self.editor.text.items[clicked_line_start_index..clicked_line_end_index];
+                const clicked_line = self.editor.getLine(row);
 
                 // Get column bounded to last column in the clicked line.
                 const no_of_tabs_in_line = std.mem.count(u8, clicked_line, "\t");
@@ -148,6 +141,7 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                 else
                     clicked_line.len;
 
+                const clicked_line_start_index = self.editor.line_indexes.items[row].toInt();
                 const cursor_pos = clicked_line_start_index +| col;
 
                 // Clicking should clear all selections.
@@ -345,13 +339,10 @@ pub fn draw(self: *EditorWidget, ctx: vxfw.DrawContext) std.mem.Allocator.Error!
 
     // 2. Configure the cursor location.
 
-    const primary_selection_cursor = self.editor.selections.items[0].cursor;
-    const cursor = self.editor.toCoordinatePos(primary_selection_cursor);
-    const cursor_line_start_index = self.editor.line_indexes.items[cursor.row].toInt();
-
+    const cursor = self.editor.toCoordinatePos(self.editor.getPrimarySelection().cursor);
     const number_of_tabs_in_line = std.mem.count(
         u8,
-        self.editor.text.items[cursor_line_start_index..primary_selection_cursor.toInt()],
+        self.editor.getLine(cursor.row)[0..cursor.col],
         "\t",
     );
 
