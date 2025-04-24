@@ -1,0 +1,13 @@
+image: alpine/edge
+packages:
+  - zig
+  - git
+sources:
+  - https://git.sr.ht/~reykjalin/fn
+tasks:
+  - compile: |
+      cd fn
+      zig build check
+  - test: |
+      cd fn
+      zig build test
