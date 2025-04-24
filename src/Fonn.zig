@@ -2,7 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
-const editor_lib = @import("./editor.zig");
+const EditorWidget = @import("./EditorWidget.zig");
 const mb = @import("./menu_bar.zig");
 
 const c_mocha = @import("./themes/catppuccin-mocha.zig");
@@ -16,7 +16,7 @@ const button_styles: struct {
 
 pub const Fonn = @This();
 
-editor_widget: *editor_lib.EditorWidget,
+editor_widget: *EditorWidget,
 menu_bar: mb.MenuBar,
 gpa: std.mem.Allocator,
 children: []vxfw.SubSurface,
@@ -33,7 +33,7 @@ pub fn widget(self: *Fonn) vxfw.Widget {
 pub fn init(gpa: std.mem.Allocator) !*Fonn {
     var fonn = try gpa.create(Fonn);
 
-    const editor_widget: *editor_lib.EditorWidget = try .init(gpa);
+    const editor_widget: *EditorWidget = try .init(gpa);
 
     fonn.* = .{
         .editor_widget = editor_widget,

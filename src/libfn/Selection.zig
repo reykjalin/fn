@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Pos = @import("pos.zig").Pos;
-const Range = @import("range.zig");
+const Range = @import("Range.zig");
 
 /// A span from one cursor to another counts as a selection.
 const Selection = @This();

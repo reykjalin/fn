@@ -5,7 +5,6 @@ const builtin = @import("builtin");
 const ltf = @import("log_to_file");
 
 const Fonn = @import("./Fonn.zig");
-const editor = @import("./editor.zig");
 const mb = @import("./menu_bar.zig");
 
 const c_mocha = @import("./themes/catppuccin-mocha.zig");

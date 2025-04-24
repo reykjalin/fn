@@ -6,8 +6,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const Pos = @import("pos.zig").Pos;
-const Range = @import("range.zig");
-const Selection = @import("selection.zig");
+const Range = @import("Range.zig");
+const Selection = @import("Selection.zig");
 
 /// Managed editor object for a single file. **All properties are considered private after
 /// initialization. Modifying them will result in undefined behavior.** Use the helper methods
