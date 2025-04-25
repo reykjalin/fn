@@ -5,9 +5,12 @@ packages:
 sources:
   - https://git.sr.ht/~reykjalin/fn
 tasks:
-  - compile: |
+  - compile-libfn: |
       cd fn
       zig build check
-  - test: |
+  - test-libfn: |
       cd fn
       zig build test
+  - compile-fn-tui: |
+      cd fn/tui
+      zig build check

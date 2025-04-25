@@ -1,8 +1,8 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
-const vxfw = vaxis.vxfw;
+const libfn = @import("libfn");
 
-const libfn = @import("libfn.zig");
+const vxfw = vaxis.vxfw;
 const Editor = libfn.Editor;
 
 const c_mocha = @import("./themes/catppuccin-mocha.zig");

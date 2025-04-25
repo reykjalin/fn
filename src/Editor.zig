@@ -1,19 +1,22 @@
-// AUTHOR: Kristófer R. <kristofer@thorlaksson.com>
-// LICENSE: MIT
+//! Managed editor object for a single file. **All properties are considered private after
+//! initialization. Modifying them will result in undefined behavior.** Use the helper methods
+//! instead of modifying properties directly.
+//!
+//! AUTHOR: Kristófer R. <kristofer@thorlaksson.com>
+//! LICENSE: MIT
 
 const std = @import("std");
-
-const Allocator = std.mem.Allocator;
 
 const Pos = @import("pos.zig").Pos;
 const Range = @import("Range.zig");
 const Selection = @import("Selection.zig");
 
-/// Managed editor object for a single file. **All properties are considered private after
-/// initialization. Modifying them will result in undefined behavior.** Use the helper methods
-/// instead of modifying properties directly.
+const Allocator = std.mem.Allocator;
+
 const Editor = @This();
 
+/// Represents a position in the currently open file in the `Editor`. Directly corresponds to a
+/// `Pos`.
 pub const CoordinatePos = struct {
     row: usize,
     col: usize,

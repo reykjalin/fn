@@ -10,7 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v1
-      - name: Compile
+      - name: Compile libfn
         run: zig build check
-      - name: Run tests
+      - name: Run libfn tests
         run: zig build test
+      - name: Compile fn tui
+        run: |
+          cd tui
+          zig build check
