@@ -1,9 +1,6 @@
 //! Managed editor object for a single file. **All properties are considered private after
 //! initialization. Modifying them will result in undefined behavior.** Use the helper methods
 //! instead of modifying properties directly.
-//!
-//! AUTHOR: Kristófer R. <kristofer@thorlaksson.com>
-//! LICENSE: MIT
 
 const std = @import("std");
 

@@ -1,6 +1,7 @@
 const std = @import("std");
 
-/// Unicode-aware row/col cursor position in the current content-buffer.
+/// A `Pos` represents a position in the text editor. `Pos` is a wrapper around `usize`. You can use
+/// `fromInt` and `toInt` to convert between `Pos` and `usize`.
 pub const Pos = enum(usize) {
     _,
 

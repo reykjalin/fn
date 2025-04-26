@@ -1,3 +1,8 @@
+//! A `Selection` contains 2 `Pos` structs, one represents the position of the cursor and the other
+//! is an anchor. `Selection`s are semantically different from `Range`s. A `Range`s `Pos`itions are
+//! arbitrary points, where neither has semantic meaning, unlike the `cursor` and `anchor` in a
+//! `Selection`.
+
 const std = @import("std");
 
 const Pos = @import("pos.zig").Pos;

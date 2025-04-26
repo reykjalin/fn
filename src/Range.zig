@@ -1,3 +1,7 @@
+//! A `Range` contains 2 `Pos` structs. It can be used to represent a range somewhere in the file.
+//! It's semantically different from `Selection`. A `Selection` has a cursor and anchor, each of
+//! which has their own semantic meaning, while a `Range` is simply 2 arbitrary `Pos`itions.
+
 const std = @import("std");
 
 const Pos = @import("pos.zig").Pos;
