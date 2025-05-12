@@ -4,7 +4,7 @@
 
 A code editor for _fun_.
 
-![Screenshot of the fn TUI modifying its own source code](../screenshots/fn.webp)
+![Screenshot of the fn TUI modifying its own source code](./screenshots/fn.webp)
 
 This is currently a toy project, but `fn` is stable enough that I'm exclusively using it when working on changes to the editor.
 
