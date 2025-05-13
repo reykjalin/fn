@@ -614,6 +614,62 @@ test insertTextBeforeSelection {
     // 4. Insertion that contains a new line in the middle.
 }
 
+test insertTextAtCursors {
+    var editor = try Editor.init(talloc);
+    defer editor.deinit(talloc);
+    
+    // 1. Insertion happens at initial cursor to begin with.
+    
+    try editor.insertTexAtCursors(talloc, "hello");
+    // Cursor is now at the end of the text.
+    try std.testing.expectEqualStrings(
+        "hello",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.{ .anchor = .fromInt(5), .cursor = .fromInt(5) }},
+        editor.selections.items,
+    );
+    
+    // 2. Adding a cursor at the start makes insertion happen at both cursors.
+    
+    try editor.appendSelection(talloc, .{ .anchor = .fromInt(0), .cursor = .fromInt(0) });
+    try editor.insertTexAtCursors(talloc, ", world!");
+    try std.testing.expectEqualStrings(
+        ", world!hello, world!",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = .fromInt(21), .cursor = .fromInt(21) },
+            .{ .anchor = .fromInt(8), .cursor = .fromInt(8) },
+        },
+        editor.selections.items,
+    );
+    
+    // 3. Adding a selection in the middle causes text to appear in the right places.
+    
+    try editor.appendSelection(talloc, .{ .anchor = .fromInt(12), .cursor = .fromInt(15) });
+    try editor.appendSelection(talloc, .{ .anchor = .fromInt(19), .cursor = .fromInt(17) });
+    try editor.insertTexAtCursors(talloc, "abc");
+    try std.testing.expectEqualStrings(
+        ", world!abchello, abcwoabcrld!abc",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{
+            .{ .anchor = .fromInt(33), .cursor = .fromInt(33) },
+            .{ .anchor = .fromInt(11), .cursor = .fromInt(11) },
+            .{ .anchor = .fromInt(15), .cursor = .fromInt(21) },
+            .{ .anchor = .fromInt(28), .cursor = .fromInt(26) },
+        },
+        editor.selections.items,
+    );
+}
+
 test insertTextAfterSelection {
     var editor = try Editor.init(talloc);
     defer editor.deinit(talloc);
