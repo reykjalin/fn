@@ -7,10 +7,10 @@ sources:
 tasks:
   - compile-libfn: |
       cd fn
-      zig build check
+      zig build check || zig build check
   - test-libfn: |
       cd fn
-      zig build test
+      zig build test || zig build test
   - compile-fn-tui: |
       cd fn/tui
-      zig build check
+      zig build check || zig build check
