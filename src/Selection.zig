@@ -55,6 +55,12 @@ pub fn hasOverlap(a: Selection, b: Selection) bool {
     return a.toRange().hasOverlap(b.toRange());
 }
 
+/// Returns `true` if `a` comes before `b`. Asserts that `a` and `b` don't overlap.
+pub fn comesBefore(a: Selection, b: Selection) bool {
+    std.debug.assert(!a.hasOverlap(b));
+    return a.toRange().after().toInt() < b.toRange().before().toInt();
+}
+
 /// Merges the provided Selections into a new selection. Asserts that the selections overlap.
 pub fn merge(a: Selection, b: Selection) Selection {
     std.debug.assert(a.hasOverlap(b));
@@ -180,6 +186,15 @@ test eql {
     try std.testing.expectEqual(false, Selection.eql(a, c));
     try std.testing.expectEqual(false, Selection.eql(c, b));
     try std.testing.expectEqual(false, Selection.eql(b, c));
+}
+
+test comesBefore {
+    const a: Selection = .{ .anchor = Pos.fromInt(0), .cursor = Pos.fromInt(3) };
+    const b: Selection = .{ .anchor = Pos.fromInt(4), .cursor = Pos.fromInt(7) };
+    const c: Selection = .{ .anchor = Pos.fromInt(20), .cursor = Pos.fromInt(10) };
+
+    try std.testing.expect(a.comesBefore(b));
+    try std.testing.expect(b.comesBefore(c));
 }
 
 test strictEql {

@@ -418,11 +418,36 @@ pub fn lineCount(self: *const Editor) usize {
 /// selection, and the selection moved with the new content such that it will still select the same
 /// text.
 pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8) !void {
-    _ = self;
-    _ = allocator;
-    _ = text;
+    for (self.selections.items) |*s| {
+        // Insert text.
+        try self.text.insertSlice(allocator, s.cursor.toInt(), text);
 
-    // TODO: implement.
+        // Update other selection positions.
+        // NOTE: We've asserted that no selections overlap, so we stick to that assumption here.
+        for (self.selections.items) |*other| {
+            if (s.eql(other.*)) continue;
+
+            if (s.comesBefore(other.*)) {
+                other.cursor = .fromInt(other.cursor.toInt() + text.len);
+                other.anchor = .fromInt(other.anchor.toInt() + text.len);
+            }
+        }
+
+        // Update this selection's positions.
+        if (s.isCursor()) {
+            s.cursor = .fromInt(s.cursor.toInt() + text.len);
+            s.anchor = s.cursor;
+        } else if (s.cursor.comesBefore(s.anchor)) {
+            s.cursor = .fromInt(s.cursor.toInt() + text.len);
+            s.anchor = .fromInt(s.anchor.toInt() + text.len);
+        } else {
+            s.cursor = .fromInt(s.cursor.toInt() + text.len);
+        }
+    }
+
+    std.debug.assert(!self.hasOverlappingSelections());
+
+    try self.updateLines(allocator);
 }
 
 /// Inserts the provided text before all selections. Selections will not be cleared, and will
@@ -472,6 +497,20 @@ pub fn appendSelection(self: *Editor, allocator: Allocator, new_selection: Selec
 
         outer += 1;
     }
+
+    std.debug.assert(!self.hasOverlappingSelections());
+}
+
+fn hasOverlappingSelections(self: *const Editor) bool {
+    for (0..self.selections.items.len -| 1) |i| {
+        const s = self.selections.items[i];
+
+        for (self.selections.items[i + 1 ..]) |other| {
+            if (s.hasOverlap(other)) return true;
+        }
+    }
+
+    return false;
 }
 
 /// Tokenizes the text.
@@ -617,10 +656,10 @@ test insertTextBeforeSelection {
 test insertTextAtCursors {
     var editor = try Editor.init(talloc);
     defer editor.deinit(talloc);
-    
+
     // 1. Insertion happens at initial cursor to begin with.
-    
-    try editor.insertTexAtCursors(talloc, "hello");
+
+    try editor.insertTextAtCursors(talloc, "hello");
     // Cursor is now at the end of the text.
     try std.testing.expectEqualStrings(
         "hello",
@@ -631,11 +670,11 @@ test insertTextAtCursors {
         &.{.{ .anchor = .fromInt(5), .cursor = .fromInt(5) }},
         editor.selections.items,
     );
-    
+
     // 2. Adding a cursor at the start makes insertion happen at both cursors.
-    
+
     try editor.appendSelection(talloc, .{ .anchor = .fromInt(0), .cursor = .fromInt(0) });
-    try editor.insertTexAtCursors(talloc, ", world!");
+    try editor.insertTextAtCursors(talloc, ", world!");
     try std.testing.expectEqualStrings(
         ", world!hello, world!",
         editor.text.items,
@@ -648,12 +687,12 @@ test insertTextAtCursors {
         },
         editor.selections.items,
     );
-    
+
     // 3. Adding a selection in the middle causes text to appear in the right places.
-    
+
     try editor.appendSelection(talloc, .{ .anchor = .fromInt(12), .cursor = .fromInt(15) });
     try editor.appendSelection(talloc, .{ .anchor = .fromInt(19), .cursor = .fromInt(17) });
-    try editor.insertTexAtCursors(talloc, "abc");
+    try editor.insertTextAtCursors(talloc, "abc");
     try std.testing.expectEqualStrings(
         ", world!abchello, abcwoabcrld!abc",
         editor.text.items,
