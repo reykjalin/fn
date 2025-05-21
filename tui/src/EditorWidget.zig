@@ -197,6 +197,13 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                         ctx.consumeAndRedraw();
                     } else if (key.matches('a', .{})) {
                         self.editor.moveCursorAfterAnchorForAllSelections();
+                        // Make sure the cursor beam appears after the character under the cursor.
+                        // FIXME: This should probably be some sort of API in `libfn.Editor`.
+                        for (self.editor.selections.items) |*s| {
+                            s.cursor = .fromInt(s.cursor.toInt() +| 1);
+                            if (s.cursor.toInt() > self.editor.text.items.len)
+                                s.cursor = .fromInt(self.editor.text.items.len);
+                        }
                         self.mode = .insert;
                         ctx.consumeAndRedraw();
                     }
