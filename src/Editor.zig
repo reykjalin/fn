@@ -160,29 +160,57 @@ pub fn moveCursorAfterAnchorForAllSelections(self: *Editor) void {
 /// Moves each selection up one line. Selections will be collapsed to the cursor before they're
 /// moved.
 pub fn moveSelectionsUp(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+    for (self.selections.items) |*s| {
+        var cursor = self.toCoordinatePos(s.cursor);
+        if (cursor.row == 0) {
+            s.cursor = .fromInt(0);
+        } else {
+            cursor.row -= 1;
+            const line = self.getLine(cursor.row);
+            if (cursor.col > line.len) cursor.col = line.len;
+        }
+
+        s.cursor = self.toPos(cursor);
+        s.anchor = s.cursor;
+    }
 }
 
 /// Moves each selection down one line. Selections will be collapsed to the cursor before they're
 /// moved.
 pub fn moveSelectionsDown(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+    for (self.selections.items) |*s| {
+        var cursor = self.toCoordinatePos(s.cursor);
+        if (cursor.row == self.text.items.len) {
+            s.cursor = .fromInt(self.text.items.len);
+        } else {
+            cursor.row += 1;
+            const line = self.getLine(cursor.row);
+            if (cursor.col > line.len) cursor.col = line.len;
+        }
+
+        s.cursor = self.toPos(cursor);
+        s.anchor = s.cursor;
+    }
 }
 
 /// Moves each selection left one character. Selections will be collapsed to the cursor before
 /// they're moved.
 pub fn moveSelectionsLeft(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+    for (self.selections.items) |*s| {
+        s.cursor = .fromInt(s.cursor.toInt() -| 1);
+        s.anchor = s.cursor;
+    }
 }
 
 /// Moves each selection right one character. Selections will be collapsed to the cursor before
 /// they're moved.
 pub fn moveSelectionsRight(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+    const text_len = self.text.items.len;
+    for (self.selections.items) |*s| {
+        s.cursor = .fromInt(s.cursor.toInt() +| 1);
+        if (s.cursor.toInt() > text_len) s.cursor = .fromInt(text_len);
+        s.anchor = s.cursor;
+    }
 }
 
 /// Collapses each selection to its cursor and moves it to the start of the line. If the cursor is
@@ -567,6 +595,23 @@ pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
     return .{ .row = row, .col = pos.toInt() -| startOfRowIndex.toInt() };
 }
 
+/// Converts the provided `CoordinatePos` object to a `Pos`.
+pub fn toPos(self: *Editor, pos: CoordinatePos) Pos {
+    // 1. Assert that the provided position is valid.
+
+    std.debug.assert(pos.row < self.lineCount());
+    const line = self.getLine(pos.row);
+    // NOTE: The position after the last character in a line is a valid position which is why we
+    //       must check for equality against the text length. Note that `getLine` does not include
+    //       the newline character.
+    std.debug.assert(pos.col <= line.len);
+
+    // 2. Calculate the position.
+
+    const start_of_line = self.line_indexes.items[pos.row].toInt();
+    return .fromInt(start_of_line + pos.col);
+}
+
 /// Returns `true` if any of the current selections overlap, `false` otherwise.
 fn hasValidSelections(self: *const Editor) bool {
     for (self.selections.items, 0..) |selection, current_idx| {
@@ -602,6 +647,29 @@ test toCoordinatePos {
     try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 3 }, editor.toCoordinatePos(.fromInt(11)));
 
     try std.testing.expectEqual(CoordinatePos{ .row = 3, .col = 0 }, editor.toCoordinatePos(.fromInt(12)));
+}
+
+test toPos {
+    var editor = try Editor.init(talloc);
+    defer editor.deinit(talloc);
+
+    try editor.text.appendSlice(talloc, "012\n456\n890\n");
+    // Updating the lines is required to properly calculate the byte-level cursor positions.
+    try editor.updateLines(talloc);
+
+    try std.testing.expectEqual((Pos.fromInt(0)), editor.toPos(CoordinatePos{ .row = 0, .col = 0 }));
+    try std.testing.expectEqual((Pos.fromInt(2)), editor.toPos(CoordinatePos{ .row = 0, .col = 2 }));
+    try std.testing.expectEqual((Pos.fromInt(3)), editor.toPos(CoordinatePos{ .row = 0, .col = 3 }));
+
+    try std.testing.expectEqual((Pos.fromInt(4)), editor.toPos(CoordinatePos{ .row = 1, .col = 0 }));
+    try std.testing.expectEqual((Pos.fromInt(5)), editor.toPos(CoordinatePos{ .row = 1, .col = 1 }));
+    try std.testing.expectEqual((Pos.fromInt(7)), editor.toPos(CoordinatePos{ .row = 1, .col = 3 }));
+
+    try std.testing.expectEqual((Pos.fromInt(8)), editor.toPos(CoordinatePos{ .row = 2, .col = 0 }));
+    try std.testing.expectEqual((Pos.fromInt(10)), editor.toPos(CoordinatePos{ .row = 2, .col = 2 }));
+    try std.testing.expectEqual((Pos.fromInt(11)), editor.toPos(CoordinatePos{ .row = 2, .col = 3 }));
+
+    try std.testing.expectEqual((Pos.fromInt(12)), editor.toPos(CoordinatePos{ .row = 3, .col = 0 }));
 }
 
 test lineCount {
