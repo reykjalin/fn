@@ -1,15 +1,8 @@
-# ❄️ libfn
+# ❄️ Fönn
 
 [![Build and run Fönn tests](https://github.com/reykjalin/fn/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/reykjalin/fn/actions/workflows/tests.yml) [![builds.sr.ht status](https://builds.sr.ht/~reykjalin/fn/commits/main/tests.yml.svg)](https://builds.sr.ht/~reykjalin/fn/commits/main/tests.yml?)
 
-If you're looking for the editor, you can find that in the [./tui](./tui) folder.
-
-`libfn` is an editor engine that I'm working on for fun.
-It's currently used to power my toy editor project [Fönn](./tui).
-
-If you're working on a Zig project and want to play around with the library itself you can do so by
-installing fun with `zig fetch --save git+https://git.sr.ht/~reykjalin/fn`.
-You can also try my toy editor by building the editor from the [./tui](./tui) folder.
+This repo contains 2 projects: `libfn`, and Fönn. `libfn` is an editor engine that I'm working on for fun. Fönn is a code editor powered by `libfn`.
 
 My primary goal is to eventually have a modern, capable TUI code editor that's powered by a reusable
 editing engine. The engine itself will eventually be exposed as a static library with a C API, but
@@ -18,7 +11,52 @@ made in Zig. If I can get this project that far that is :)
 A secondary goal is for `fn` to eventually have both a GUI and a TUI powered by this same text
 editing "engine".
 
-## libfn build instructions
+## Fönn (TUI)
+
+❄️ Fönn: A code editor for _fun_.
+
+![Screenshot of the fn TUI modifying its own source code](./screenshots/fn.webp)
+
+This is currently a toy project, but `fn` is stable enough that I'm exclusively using it when working on changes to the editor.
+
+My primary goal is to have a modern, capable TUI code editor.
+A secondary goal is for `fn` to eventually have both a GUI and a TUI powered by the same text editing "engine".
+
+### Build instructions
+
+```sh
+# Debug build in ./zig-out/bin/fn.
+zig build -Dtui
+
+# Run debug build in current directory.
+zig build run -Dtui
+
+# Open a file with debug build.
+zig build run -Dtui -- path/to/file
+
+# Release build in ~/.local/bin/fn.
+zig build -Dtui -Doptimize=ReleaseSafe --prefix ~/.local
+```
+
+## Usage
+
+```sh
+$ fn --help
+Usage: fn [file]
+
+General options:
+
+  -h, --help     Print fn help
+  -v, --version  Print fn version
+
+```
+
+## libfn
+
+If you're working on a Zig project and want to play around with the library itself you can do so by
+installing fun with `zig fetch --save git+https://git.sr.ht/~reykjalin/fn`.
+
+### Build instructions
 
 ```sh
 # Make sure libfn builds.
@@ -28,7 +66,7 @@ zig build check
 zig build test
 ```
 
-## Usage
+### Usage
 
 ```sh
 $ zig fetch --save git+https://git.sr.ht/~reykjalin/fn

@@ -3,9 +3,18 @@
     .fingerprint = 0xe304ae87c91c388,
     .version = "0.0.1",
     .minimum_zig_version = "0.14.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .log_to_file = .{
+            .url = "git+https://git.sr.ht/~reykjalin/log_to_file?ref=2.1.0#add71ed5dcd94ca10d70477a869c552ed760d4e8",
+            .hash = "log_to_file-2.1.0-vcE8Az8_AAB4FGmTuYb00TRPKdsoBP5bF7W8o6vYe51p",
+        },
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis#84d6cb381c0d628550fac3f6daa24c5faf7b2cd1",
+            .hash = "vaxis-0.1.0-BWNV_O8OCQBC4w-MnOGaKw9zFVFgTxf3XfcvgScUagEJ",
+        },
+    },
     .paths = .{
-        "src",
+        "src/libfn",
         "README.md",
         "LICENSE",
     },

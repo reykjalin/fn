@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const root_source_file = b.path("src/libfn.zig");
+    const root_source_file = b.path("src/libfn/libfn.zig");
 
     // Build zig module.
     const libfn = b.addModule("libfn", .{
@@ -13,9 +13,10 @@ pub fn build(b: *std.Build) void {
     });
 
     // Check step for ZLS build-on-save.
-    const libfn_check = b.addStaticLibrary(.{
+    const libfn_check = b.addLibrary(.{
         .name = "libfn",
         .root_module = libfn,
+        .linkage = .static,
     });
     const check = b.step("check", "Check if libfn compiles");
     check.dependOn(&libfn_check.step);
@@ -38,4 +39,36 @@ pub fn build(b: *std.Build) void {
     });
     const docs = b.step("docs", "Build libfn library docs");
     docs.dependOn(&install_docs.step);
+
+    const tui = b.option(bool, "tui", "include this option to build the TUI") orelse false;
+
+    // TUI.
+    if (tui) {
+        const vaxis = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
+        const ltf = b.lazyDependency("log_to_file", .{ .target = target, .optimize = optimize });
+
+        if (vaxis) |vaxis_dep| {
+            if (ltf) |ltf_dep| {
+                const exe = b.addExecutable(.{
+                    .name = "fn",
+                    .root_source_file = b.path("src/tui/main.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                });
+                exe.root_module.addImport("vaxis", vaxis_dep.module("vaxis"));
+                exe.root_module.addImport("log_to_file", ltf_dep.module("log_to_file"));
+                exe.root_module.addImport("libfn", libfn);
+
+                // Run step.
+                const run_cmd = b.addRunArtifact(exe);
+                run_cmd.step.dependOn(b.getInstallStep());
+                const run_step = b.step("run", "Run the app");
+                run_step.dependOn(&run_cmd.step);
+                if (b.args) |args| run_cmd.addArgs(args);
+
+                // Build TUI.
+                b.installArtifact(exe);
+            }
+        }
+    }
 }
