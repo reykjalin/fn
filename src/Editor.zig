@@ -92,17 +92,27 @@ pub fn deinit(self: *Editor, allocator: Allocator) void {
 /// must be a file pathk relative to the current working directory or an absolute path.
 /// TODO: handle errors in a way that this can return `void` or maybe some `result` type.
 pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void {
-    // 1. Open the file for reading.
+    // 1. Open a scratch buffer if no file name is provided.
+
+    if (filename.len == 0) {
+        self.filename.clearAndFree(allocator);
+        self.text.clearAndFree(allocator);
+        try self.updateLines(allocator);
+        try self.tokenize(allocator);
+        return;
+    }
+
+    // 2. Open the file for reading.
 
     const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
     defer file.close();
 
-    // 2. Get a reader to read the file.
+    // 3. Get a reader to read the file.
 
     var buf_reader = std.io.bufferedReader(file.reader());
     const reader = buf_reader.reader();
 
-    // 3. Read the file and store in state.
+    // 4. Read the file and store in state.
 
     const contents = try reader.readAllAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(contents);
@@ -110,16 +120,16 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
     self.text.clearRetainingCapacity();
     try self.text.appendSlice(allocator, contents);
 
-    // 4. Only after the file has been successfully read do we update file name and other state.
+    // 5. Only after the file has been successfully read do we update file name and other state.
 
     self.filename.clearRetainingCapacity();
     try self.filename.appendSlice(allocator, filename);
 
-    // 5. Update line start array.
+    // 6. Update line start array.
 
     try self.updateLines(allocator);
 
-    // 6. Tokenize the new text.
+    // 7. Tokenize the new text.
 
     try self.tokenize(allocator);
 }
