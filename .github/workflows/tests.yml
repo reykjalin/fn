@@ -9,12 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
       - name: Compile libfn
         run: zig build check
       - name: Run libfn tests
         run: zig build test
       - name: Compile fn tui
         run: |
-          cd tui
-          zig build check
+          zig build -Dtui
