@@ -4,7 +4,8 @@
 
 const std = @import("std");
 
-const Pos = @import("pos.zig").Pos;
+const Pos = @import("pos.zig");
+const IndexPos = @import("indexpos.zig").IndexPos;
 const Range = @import("Range.zig");
 const Selection = @import("Selection.zig");
 
@@ -38,7 +39,7 @@ filename: std.ArrayListUnmanaged(u8),
 text: std.ArrayListUnmanaged(u8),
 /// The start position of each line in the content buffer using a byte-position. **Modifying this
 /// will cause undefined behavior**. This will automatically be kept up to date by helper methods.
-line_indexes: std.ArrayListUnmanaged(Pos),
+line_indexes: std.ArrayListUnmanaged(IndexPos),
 /// An array of tokens in the text. The text will be tokenized every time it changes. **Modifying
 /// this will cause undefined behavior**. The default tokenization has the whole text set to a
 /// simple `Text` type.
@@ -63,13 +64,16 @@ pub const Command = union(enum) {
 /// Initializes an Editor struct with an empty filename and empty content buffer.
 pub fn init(allocator: Allocator) !Editor {
     var selections: std.ArrayListUnmanaged(Selection) = .empty;
-    try selections.append(allocator, .{ .anchor = .fromInt(0), .cursor = .fromInt(0) });
+    try selections.append(
+        allocator,
+        .{ .anchor = .{ .row = 0, .col = 0 }, .cursor = .{ .row = 0, .col = 0 } },
+    );
 
-    var lines: std.ArrayListUnmanaged(Pos) = .empty;
+    var lines: std.ArrayListUnmanaged(IndexPos) = .empty;
     try lines.append(allocator, .fromInt(0));
 
     var tokens: std.ArrayListUnmanaged(Token) = .empty;
-    try tokens.append(allocator, .{ .pos = .fromInt(0), .text = "", .type = .Text });
+    try tokens.append(allocator, .{ .pos = .{ .row = 0, .col = 0 }, .text = "", .type = .Text });
 
     return .{
         .filename = .empty,
@@ -171,25 +175,18 @@ pub fn moveCursorAfterAnchorForAllSelections(self: *Editor) void {
 /// moved.
 pub fn moveSelectionsUp(self: *Editor) void {
     for (self.selections.items) |*s| {
-        var cursor = self.toCoordinatePos(s.cursor);
-        if (cursor.row == 0) {
-            s.cursor = .fromInt(0);
-        } else {
-            cursor.row -= 1;
-            const line = self.getLine(cursor.row);
-            if (cursor.col > line.len) cursor.col = line.len;
-        }
-
-        s.cursor = self.toPos(cursor);
+        if (s.cursor.row > 0) s.cursor.row -= 1;
         s.anchor = s.cursor;
     }
+
+    // TODO: Merge selections.
 }
 
 /// Moves each selection down one line. Selections will be collapsed to the cursor before they're
 /// moved.
 pub fn moveSelectionsDown(self: *Editor) void {
     for (self.selections.items) |*s| {
-        var cursor = self.toCoordinatePos(s.cursor);
+        var cursor = s.cursor;
         cursor.row +|= 1;
 
         // Keep the cursor where it is when we try to move beyond the last line.
@@ -200,29 +197,56 @@ pub fn moveSelectionsDown(self: *Editor) void {
         const line = self.getLine(cursor.row);
         if (cursor.col > line.len) cursor.col = line.len;
 
-        s.cursor = self.toPos(cursor);
+        s.cursor = cursor;
         s.anchor = s.cursor;
     }
+
+    // TODO: Merge selections.
 }
 
 /// Moves each selection left one character. Selections will be collapsed to the cursor before
 /// they're moved.
 pub fn moveSelectionsLeft(self: *Editor) void {
     for (self.selections.items) |*s| {
-        s.cursor = .fromInt(s.cursor.toInt() -| 1);
+        const line = self.getLine(s.cursor.row);
+
+        // Reset virtual column location if it extends beyond the length of the line.
+        if (s.cursor.col >= line.len) s.cursor.col = line.len;
+
+        if (s.cursor.col == 0 and s.cursor.row > 0) {
+            s.cursor.row -= 1;
+            const new_line = self.getLine(s.cursor.row);
+            s.cursor.col = new_line.len;
+        } else {
+            s.cursor.col -|= 1;
+        }
+
         s.anchor = s.cursor;
     }
+
+    // TODO: Merge selections.
 }
 
 /// Moves each selection right one character. Selections will be collapsed to the cursor before
 /// they're moved.
 pub fn moveSelectionsRight(self: *Editor) void {
-    const text_len = self.text.items.len;
+    const num_lines = self.line_indexes.items.len -| 1;
     for (self.selections.items) |*s| {
-        s.cursor = .fromInt(s.cursor.toInt() +| 1);
-        if (s.cursor.toInt() > text_len) s.cursor = .fromInt(text_len);
+        const line = self.getLine(s.cursor.row);
+
+        s.cursor.col +|= 1;
+
+        if (s.cursor.col > line.len and s.cursor.row < num_lines) {
+            s.cursor.row +|= 1;
+            s.cursor.col = 0;
+        } else if (s.cursor.row == num_lines) {
+            s.cursor.col = line.len;
+        }
+
         s.anchor = s.cursor;
     }
+
+    // TODO: Merge selections.
 }
 
 /// Collapses each selection to its cursor and moves it to the start of the line. If the cursor is
@@ -312,38 +336,42 @@ pub fn getAllTextOwned(self: *const Editor, allocator: Allocator) ![]const u8 {
 pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
     // 1. Find all the cursor positions.
 
-    var cursors: std.ArrayListUnmanaged(Pos) = .empty;
+    var cursors: std.ArrayListUnmanaged(IndexPos) = .empty;
     defer cursors.deinit(allocator);
 
     for (self.selections.items) |selection| {
         var shouldAppend = true;
+        const selection_cursor = toIndexPos(self.text.items, selection.cursor);
 
         // We make sure we only add one of each cursor position to make sure selections where the
         // cursors are touching don't cause 2 deletes.
         for (cursors.items) |cursor| {
-            if (cursor == selection.cursor) {
+            if (cursor.eql(selection_cursor)) {
                 shouldAppend = false;
                 break;
             }
         }
 
-        if (shouldAppend) try cursors.append(allocator, selection.cursor);
+        if (shouldAppend) try cursors.append(allocator, selection_cursor);
     }
 
     // 2. The selections aren't guaranteed to be in order, so we sort them and make sure we delete
     //    from the back of the text first. That way we don't have to update all the cursors after
     //    each deletion.
 
-    std.mem.sort(Pos, cursors.items, {}, Pos.lessThan);
-    std.mem.reverse(Pos, cursors.items);
+    std.mem.sort(IndexPos, cursors.items, {}, IndexPos.lessThan);
+    std.mem.reverse(IndexPos, cursors.items);
 
     // 3. Delete character before each cursor.
+
+    const old_text = try allocator.dupe(u8, self.text.items);
+    defer allocator.free(old_text);
 
     for (cursors.items) |cursor| {
         // We can't delete before the first character in the file, so that's a noop.
         if (cursor.toInt() == 0) continue;
 
-        _ = self.text.orderedRemove(cursor.toInt() - 1);
+        _ = self.text.orderedRemove(cursor.toInt() -| 1);
     }
 
     // 4. Update state.
@@ -378,8 +406,6 @@ pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
     for (self.selections.items) |current| {
         var movement: usize = 1;
         for (self.selections.items) |other| {
-            // FIXME: selections should have equality methods so you don't have to convert to
-            //        ranges.
             if (current.strictEql(other)) continue;
 
             // We move the cursor 1 additional character for every cursor that comes before it.
@@ -392,9 +418,12 @@ pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
     // Need to move the cursors. Since each selection will have resulted in a deleted character we
     // need to move each cursor back equal to it's position in the file.
     for (self.selections.items, orderMap.items) |*selection, movement| {
+        const cursor = toIndexPos(old_text, selection.cursor);
+        const anchor = toIndexPos(old_text, selection.anchor);
+
         if (selection.isCursor()) {
             // FIXME: Make this unicode-aware.
-            selection.cursor = .fromInt(selection.cursor.toInt() -| movement);
+            selection.cursor = self.toPos(.fromInt(cursor.toInt() -| movement));
             selection.anchor = selection.cursor;
             continue;
         }
@@ -403,11 +432,11 @@ pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
         // Otherwise move just the cursor.
         if (selection.cursor.comesBefore(selection.anchor)) {
             // FIXME: Make this unicode-aware.
-            selection.cursor = .fromInt(selection.cursor.toInt() -| movement);
-            selection.anchor = .fromInt(selection.anchor.toInt() -| movement);
+            selection.cursor = self.toPos(.fromInt(cursor.toInt() -| movement));
+            selection.anchor = self.toPos(.fromInt(anchor.toInt() -| movement));
         } else {
             // FIXME: Make this unicode-aware.
-            selection.cursor = .fromInt(selection.cursor.toInt() -| movement);
+            selection.cursor = self.toPos(.fromInt(cursor.toInt() -| movement));
 
             const is_first_selection_in_file = movement == 1;
 
@@ -418,7 +447,7 @@ pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
                 // so we subtract 1 from the movement.
                 // FIXME: Make this unicode aware.
                 const anchor_movement = movement -| 1;
-                selection.anchor = .fromInt(selection.anchor.toInt() -| anchor_movement);
+                selection.anchor = self.toPos(.fromInt(anchor.toInt() -| anchor_movement));
             }
 
             // Collapse the selection into a cursor if the cursor moved beyond the anchor.
@@ -459,8 +488,14 @@ pub fn lineCount(self: *const Editor) usize {
 /// text.
 pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8) !void {
     for (self.selections.items) |*s| {
+        const cursor = toIndexPos(self.text.items, s.cursor);
+
         // Insert text.
-        try self.text.insertSlice(allocator, s.cursor.toInt(), text);
+        try self.text.insertSlice(allocator, cursor.toInt(), text);
+
+        // Check inserted text for new lines so we can handle them properly.
+        const num_new_lines = std.mem.count(u8, text, "\n");
+        const last_new_line = std.mem.lastIndexOfScalar(u8, text, '\n');
 
         // Update other selection positions.
         // NOTE: We've asserted that no selections overlap, so we stick to that assumption here.
@@ -468,46 +503,44 @@ pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8
             if (s.eql(other.*)) continue;
 
             if (s.comesBefore(other.*)) {
-                other.cursor = .fromInt(other.cursor.toInt() + text.len);
-                other.anchor = .fromInt(other.anchor.toInt() + text.len);
+                other.cursor = .{
+                    .row = other.cursor.row +| num_new_lines,
+                    .col = if (last_new_line) |i| text[i..].len else other.cursor.col +| text.len,
+                };
+                other.anchor = .{
+                    .row = other.anchor.row +| num_new_lines,
+                    .col = if (last_new_line) |i| text[i..].len else other.anchor.col +| text.len,
+                };
             }
         }
 
         // Update this selection's positions.
         if (s.isCursor()) {
-            s.cursor = .fromInt(s.cursor.toInt() + text.len);
+            s.cursor = .{
+                .row = s.cursor.row +| num_new_lines,
+                .col = if (last_new_line) |i| text[i..].len else s.cursor.col +| text.len,
+            };
             s.anchor = s.cursor;
         } else if (s.cursor.comesBefore(s.anchor)) {
-            s.cursor = .fromInt(s.cursor.toInt() + text.len);
-            s.anchor = .fromInt(s.anchor.toInt() + text.len);
+            s.cursor = .{
+                .row = s.cursor.row +| num_new_lines,
+                .col = if (last_new_line) |i| text[i..].len else s.cursor.col +| text.len,
+            };
+            s.anchor = .{
+                .row = s.anchor.row +| num_new_lines,
+                .col = if (last_new_line) |i| text[i..].len else s.anchor.col +| text.len,
+            };
         } else {
-            s.cursor = .fromInt(s.cursor.toInt() + text.len);
+            s.cursor = .{
+                .row = s.cursor.row +| num_new_lines,
+                .col = if (last_new_line) |i| text[i..].len else s.cursor.col +| text.len,
+            };
         }
     }
 
     std.debug.assert(!self.hasOverlappingSelections());
 
     try self.updateLines(allocator);
-}
-
-/// Inserts the provided text before all selections. Selections will not be cleared, and will
-/// instead move with the content such that they will still select the same text.
-pub fn insertTextBeforeSelection(self: *Editor, allocator: Allocator, text: []const u8) !void {
-    _ = self;
-    _ = text;
-    _ = allocator;
-
-    // TODO: implement.
-}
-
-/// Inserts the provided text after all selections. Selections will not be cleared. The inserted
-/// text will instead be appended to the end of each selection.
-pub fn insertTextAfterSelection(self: *Editor, allocator: Allocator, text: []const u8) !void {
-    _ = self;
-    _ = text;
-    _ = allocator;
-
-    // TODO: implement.
 }
 
 /// Appends the provided Selection to the current list of selections. If the new selection overlaps
@@ -541,24 +574,12 @@ pub fn appendSelection(self: *Editor, allocator: Allocator, new_selection: Selec
     std.debug.assert(!self.hasOverlappingSelections());
 }
 
-fn hasOverlappingSelections(self: *const Editor) bool {
-    for (0..self.selections.items.len -| 1) |i| {
-        const s = self.selections.items[i];
-
-        for (self.selections.items[i + 1 ..]) |other| {
-            if (s.hasOverlap(other)) return true;
-        }
-    }
-
-    return false;
-}
-
 /// Tokenizes the text.
 /// TODO: Have language extensions implement this and call those functions when relevant.
 fn tokenize(self: *Editor, allocator: Allocator) !void {
     self.tokens.clearRetainingCapacity();
     try self.tokens.append(allocator, .{
-        .pos = .fromInt(0),
+        .pos = .{ .row = 0, .col = 0 },
         .text = self.text.items,
         .type = .Text,
     });
@@ -577,7 +598,7 @@ fn updateLines(self: *Editor, allocator: Allocator) !void {
 }
 
 /// Converts the provided `Pos` object to a `CoordinatePos`.
-pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
+pub fn toPos(self: *Editor, pos: IndexPos) Pos {
     // 1. Assert that the provided position is valid.
 
     // NOTE: The position after the last character in a file is a valid position which is why we
@@ -602,34 +623,46 @@ pub fn toCoordinatePos(self: *Editor, pos: Pos) CoordinatePos {
     // 3. Use the byte-level position of the start of the row to calculate the column of the
     //    provided position.
 
-    const startOfRowIndex: Pos = self.line_indexes.items[row];
+    const startOfRowIndex: IndexPos = self.line_indexes.items[row];
 
     return .{ .row = row, .col = pos.toInt() -| startOfRowIndex.toInt() };
 }
 
 /// Converts the provided `CoordinatePos` object to a `Pos`.
-pub fn toPos(self: *Editor, pos: CoordinatePos) Pos {
+pub fn toIndexPos(text: []const u8, pos: Pos) IndexPos {
     // 1. Assert that the provided position is valid.
 
-    std.debug.assert(pos.row < self.lineCount());
-    const line = self.getLine(pos.row);
-    // NOTE: The position after the last character in a line is a valid position which is why we
-    //       must check for equality against the text length. Note that `getLine` does not include
-    //       the newline character.
-    std.debug.assert(pos.col <= line.len);
+    const lines = std.mem.count(u8, text, "\n") + 1;
+    std.debug.assert(pos.row < lines);
 
-    // 2. Calculate the position.
+    if (pos.row == 0) {
+        std.debug.assert(pos.col <= text.len);
+        return .fromInt(pos.col);
+    }
 
-    const start_of_line = self.line_indexes.items[pos.row].toInt();
-    return .fromInt(start_of_line + pos.col);
+    var line: usize = 0;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        if (text[i] == '\n') {
+            line += 1;
+
+            if (line == pos.row) {
+                std.debug.assert(i + pos.col + 1 <= text.len);
+                return .fromInt(i + pos.col + 1);
+            }
+        }
+    }
+
+    return .fromInt(text.len);
 }
 
 /// Returns `true` if any of the current selections overlap, `false` otherwise.
-fn hasValidSelections(self: *const Editor) bool {
-    for (self.selections.items, 0..) |selection, current_idx| {
-        var i = current_idx +| 1;
-        while (i < self.selections.items.len) : (i += 1) {
-            if (selection.hasOverlap(self.selections.items[i])) return true;
+fn hasOverlappingSelections(self: *const Editor) bool {
+    for (0..self.selections.items.len -| 1) |i| {
+        const s = self.selections.items[i];
+
+        for (self.selections.items[i + 1 ..]) |other| {
+            if (s.hasOverlap(other)) return true;
         }
     }
 
@@ -637,29 +670,6 @@ fn hasValidSelections(self: *const Editor) bool {
 }
 
 const talloc = std.testing.allocator;
-
-test toCoordinatePos {
-    var editor = try Editor.init(talloc);
-    defer editor.deinit(talloc);
-
-    try editor.text.appendSlice(talloc, "012\n456\n890\n");
-    // Updating the lines is required to properly calculate the byte-level cursor positions.
-    try editor.updateLines(talloc);
-
-    try std.testing.expectEqual(CoordinatePos{ .row = 0, .col = 0 }, editor.toCoordinatePos(.fromInt(0)));
-    try std.testing.expectEqual(CoordinatePos{ .row = 0, .col = 2 }, editor.toCoordinatePos(.fromInt(2)));
-    try std.testing.expectEqual(CoordinatePos{ .row = 0, .col = 3 }, editor.toCoordinatePos(.fromInt(3)));
-
-    try std.testing.expectEqual(CoordinatePos{ .row = 1, .col = 0 }, editor.toCoordinatePos(.fromInt(4)));
-    try std.testing.expectEqual(CoordinatePos{ .row = 1, .col = 1 }, editor.toCoordinatePos(.fromInt(5)));
-    try std.testing.expectEqual(CoordinatePos{ .row = 1, .col = 3 }, editor.toCoordinatePos(.fromInt(7)));
-
-    try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 0 }, editor.toCoordinatePos(.fromInt(8)));
-    try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 2 }, editor.toCoordinatePos(.fromInt(10)));
-    try std.testing.expectEqual(CoordinatePos{ .row = 2, .col = 3 }, editor.toCoordinatePos(.fromInt(11)));
-
-    try std.testing.expectEqual(CoordinatePos{ .row = 3, .col = 0 }, editor.toCoordinatePos(.fromInt(12)));
-}
 
 test toPos {
     var editor = try Editor.init(talloc);
@@ -669,19 +679,67 @@ test toPos {
     // Updating the lines is required to properly calculate the byte-level cursor positions.
     try editor.updateLines(talloc);
 
-    try std.testing.expectEqual((Pos.fromInt(0)), editor.toPos(CoordinatePos{ .row = 0, .col = 0 }));
-    try std.testing.expectEqual((Pos.fromInt(2)), editor.toPos(CoordinatePos{ .row = 0, .col = 2 }));
-    try std.testing.expectEqual((Pos.fromInt(3)), editor.toPos(CoordinatePos{ .row = 0, .col = 3 }));
+    try std.testing.expectEqual(Pos{ .row = 0, .col = 0 }, editor.toPos(.fromInt(0)));
+    try std.testing.expectEqual(Pos{ .row = 0, .col = 2 }, editor.toPos(.fromInt(2)));
+    try std.testing.expectEqual(Pos{ .row = 0, .col = 3 }, editor.toPos(.fromInt(3)));
 
-    try std.testing.expectEqual((Pos.fromInt(4)), editor.toPos(CoordinatePos{ .row = 1, .col = 0 }));
-    try std.testing.expectEqual((Pos.fromInt(5)), editor.toPos(CoordinatePos{ .row = 1, .col = 1 }));
-    try std.testing.expectEqual((Pos.fromInt(7)), editor.toPos(CoordinatePos{ .row = 1, .col = 3 }));
+    try std.testing.expectEqual(Pos{ .row = 1, .col = 0 }, editor.toPos(.fromInt(4)));
+    try std.testing.expectEqual(Pos{ .row = 1, .col = 1 }, editor.toPos(.fromInt(5)));
+    try std.testing.expectEqual(Pos{ .row = 1, .col = 3 }, editor.toPos(.fromInt(7)));
 
-    try std.testing.expectEqual((Pos.fromInt(8)), editor.toPos(CoordinatePos{ .row = 2, .col = 0 }));
-    try std.testing.expectEqual((Pos.fromInt(10)), editor.toPos(CoordinatePos{ .row = 2, .col = 2 }));
-    try std.testing.expectEqual((Pos.fromInt(11)), editor.toPos(CoordinatePos{ .row = 2, .col = 3 }));
+    try std.testing.expectEqual(Pos{ .row = 2, .col = 0 }, editor.toPos(.fromInt(8)));
+    try std.testing.expectEqual(Pos{ .row = 2, .col = 2 }, editor.toPos(.fromInt(10)));
+    try std.testing.expectEqual(Pos{ .row = 2, .col = 3 }, editor.toPos(.fromInt(11)));
 
-    try std.testing.expectEqual((Pos.fromInt(12)), editor.toPos(CoordinatePos{ .row = 3, .col = 0 }));
+    try std.testing.expectEqual(Pos{ .row = 3, .col = 0 }, editor.toPos(.fromInt(12)));
+}
+
+test toIndexPos {
+    const text = "012\n456\n890\n";
+
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(0)),
+        Editor.toIndexPos(text, Pos{ .row = 0, .col = 0 }),
+    );
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(2)),
+        Editor.toIndexPos(text, Pos{ .row = 0, .col = 2 }),
+    );
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(3)),
+        Editor.toIndexPos(text, Pos{ .row = 0, .col = 3 }),
+    );
+
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(4)),
+        Editor.toIndexPos(text, Pos{ .row = 1, .col = 0 }),
+    );
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(5)),
+        Editor.toIndexPos(text, Pos{ .row = 1, .col = 1 }),
+    );
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(7)),
+        Editor.toIndexPos(text, Pos{ .row = 1, .col = 3 }),
+    );
+
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(8)),
+        Editor.toIndexPos(text, Pos{ .row = 2, .col = 0 }),
+    );
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(10)),
+        Editor.toIndexPos(text, Pos{ .row = 2, .col = 2 }),
+    );
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(11)),
+        Editor.toIndexPos(text, Pos{ .row = 2, .col = 3 }),
+    );
+
+    try std.testing.expectEqual(
+        (IndexPos.fromInt(12)),
+        Editor.toIndexPos(text, Pos{ .row = 3, .col = 0 }),
+    );
 }
 
 test lineCount {
@@ -711,28 +769,6 @@ test lineCount {
     try std.testing.expectEqual(5, editor.lineCount());
 }
 
-test insertTextBeforeSelection {
-    var editor = try Editor.init(talloc);
-    defer editor.deinit(talloc);
-
-    // 1. Insertion without new line.
-
-    try editor.insertTextBeforeSelection(talloc, "lorem ipsum");
-
-    // try std.testing.expectEqualStrings("lorem ipsum", editor.text.items);
-    // try std.testing.expectEqualSlices(
-    //     Selection,
-    //     &.{.{ .row = 0, .col = 11 }},
-    //     editor.selections.items,
-    // );
-
-    // 2. Insertion that starts with a new line.
-
-    // 3. Insertion that ends with a new line.
-
-    // 4. Insertion that contains a new line in the middle.
-}
-
 test insertTextAtCursors {
     var editor = try Editor.init(talloc);
     defer editor.deinit(talloc);
@@ -747,13 +783,13 @@ test insertTextAtCursors {
     );
     try std.testing.expectEqualSlices(
         Selection,
-        &.{.{ .anchor = .fromInt(5), .cursor = .fromInt(5) }},
+        &.{.createCursor(.{ .row = 0, .col = 5 })},
         editor.selections.items,
     );
 
     // 2. Adding a cursor at the start makes insertion happen at both cursors.
 
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(0), .cursor = .fromInt(0) });
+    try editor.appendSelection(talloc, .init);
     try editor.insertTextAtCursors(talloc, ", world!");
     try std.testing.expectEqualStrings(
         ", world!hello, world!",
@@ -762,16 +798,22 @@ test insertTextAtCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(21), .cursor = .fromInt(21) },
-            .{ .anchor = .fromInt(8), .cursor = .fromInt(8) },
+            .createCursor(.{ .row = 0, .col = 21 }),
+            .createCursor(.{ .row = 0, .col = 8 }),
         },
         editor.selections.items,
     );
 
     // 3. Adding a selection in the middle causes text to appear in the right places.
 
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(12), .cursor = .fromInt(15) });
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(19), .cursor = .fromInt(17) });
+    try editor.appendSelection(talloc, .{
+        .anchor = .{ .row = 0, .col = 12 },
+        .cursor = .{ .row = 0, .col = 15 },
+    });
+    try editor.appendSelection(talloc, .{
+        .anchor = .{ .row = 0, .col = 19 },
+        .cursor = .{ .row = 0, .col = 17 },
+    });
     try editor.insertTextAtCursors(talloc, "abc");
     try std.testing.expectEqualStrings(
         ", world!abchello, abcwoabcrld!abc",
@@ -780,35 +822,13 @@ test insertTextAtCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(33), .cursor = .fromInt(33) },
-            .{ .anchor = .fromInt(11), .cursor = .fromInt(11) },
-            .{ .anchor = .fromInt(15), .cursor = .fromInt(21) },
-            .{ .anchor = .fromInt(28), .cursor = .fromInt(26) },
+            .createCursor(.{ .row = 0, .col = 33 }),
+            .createCursor(.{ .row = 0, .col = 11 }),
+            .{ .anchor = .{ .row = 0, .col = 15 }, .cursor = .{ .row = 0, .col = 21 } },
+            .{ .anchor = .{ .row = 0, .col = 28 }, .cursor = .{ .row = 0, .col = 26 } },
         },
         editor.selections.items,
     );
-}
-
-test insertTextAfterSelection {
-    var editor = try Editor.init(talloc);
-    defer editor.deinit(talloc);
-
-    // 1. Insertion without new line.
-
-    try editor.insertTextAfterSelection(talloc, "lorem ipsum");
-
-    // try std.testing.expectEqualStrings("lorem ipsum", editor.text.items);
-    // try std.testing.expectEqualSlices(
-    //     Selection,
-    //     &.{.{ .row = 0, .col = 11 }},
-    //     editor.selections.items,
-    // );
-
-    // 2. Insertion that starts with a new line.
-
-    // 3. Insertion that ends with a new line.
-
-    // 4. Insertion that contains a new line in the middle.
 }
 
 test appendSelection {
@@ -826,17 +846,26 @@ test appendSelection {
     //
     // 1 | 01^2345678|9
 
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(8) });
+    try editor.appendSelection(
+        talloc,
+        .{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 0, .col = 3 } },
+    );
+    try editor.appendSelection(
+        talloc,
+        .{ .anchor = .{ .row = 0, .col = 6 }, .cursor = .{ .row = 0, .col = 8 } },
+    );
 
-    try std.testing.expect(!editor.hasValidSelections());
+    try std.testing.expect(!editor.hasOverlappingSelections());
 
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(9) });
+    try editor.appendSelection(talloc, .{
+        .anchor = .{ .row = 0, .col = 3 },
+        .cursor = .{ .row = 0, .col = 9 },
+    });
 
-    try std.testing.expect(!editor.hasValidSelections());
+    try std.testing.expect(!editor.hasOverlappingSelections());
     try std.testing.expectEqualSlices(
         Selection,
-        &.{.{ .anchor = .fromInt(2), .cursor = .fromInt(9) }},
+        &.{.{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 0, .col = 9 } }},
         editor.selections.items,
     );
 
@@ -848,19 +877,28 @@ test appendSelection {
     //
     // 1 | 01^2|345^678|9
 
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(8) });
+    try editor.appendSelection(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
+    try editor.appendSelection(talloc, .{
+        .anchor = .{ .row = 0, .col = 6 },
+        .cursor = .{ .row = 0, .col = 8 },
+    });
 
-    try std.testing.expect(!editor.hasValidSelections());
+    try std.testing.expect(!editor.hasOverlappingSelections());
 
-    try editor.appendSelection(talloc, .{ .anchor = .fromInt(7), .cursor = .fromInt(9) });
+    try editor.appendSelection(talloc, .{
+        .anchor = .{ .row = 0, .col = 7 },
+        .cursor = .{ .row = 0, .col = 9 },
+    });
 
-    try std.testing.expect(!editor.hasValidSelections());
+    try std.testing.expect(!editor.hasOverlappingSelections());
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(3) },
-            .{ .anchor = .fromInt(6), .cursor = .fromInt(9) },
+            .{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 0, .col = 3 } },
+            .{ .anchor = .{ .row = 0, .col = 6 }, .cursor = .{ .row = 0, .col = 9 } },
         },
         editor.selections.items,
     );
@@ -902,14 +940,14 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(0), .cursor = .fromInt(0) });
+    try editor.selections.append(talloc, .init);
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
     try std.testing.expectEqualStrings("012\n456\n890\n", editor.text.items);
     try std.testing.expectEqualSlices(
         Selection,
-        &.{.{ .anchor = .fromInt(0), .cursor = .fromInt(0) }},
+        &.{.init},
         editor.selections.items,
     );
 
@@ -930,14 +968,15 @@ test deleteCharacterBeforeCursors {
     // 2 | 456
     // 3 | 890+
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(12), .cursor = .fromInt(12) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 3, .col = 0 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
     try std.testing.expectEqualStrings("012\n456\n890", editor.text.items);
+    try std.testing.expect(3 == editor.lineCount());
     try std.testing.expectEqualSlices(
         Selection,
-        &.{.{ .anchor = .fromInt(11), .cursor = .fromInt(11) }},
+        &.{.createCursor(.{ .row = 2, .col = 3 })},
         editor.selections.items,
     );
 
@@ -959,14 +998,14 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(1), .cursor = .fromInt(1) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 1 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
     try std.testing.expectEqualStrings("12\n456\n890\n", editor.text.items);
     try std.testing.expectEqualSlices(
         Selection,
-        &.{.{ .anchor = .fromInt(0), .cursor = .fromInt(0) }},
+        &.{.init},
         editor.selections.items,
     );
 
@@ -987,8 +1026,8 @@ test deleteCharacterBeforeCursors {
     // 2 | 456+890
     // 3 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(8), .cursor = .fromInt(8) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 2, .col = 0 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -996,8 +1035,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
-            .{ .anchor = .fromInt(6), .cursor = .fromInt(6) },
+            .createCursor(.{ .row = 0, .col = 2 }),
+            .createCursor(.{ .row = 1, .col = 3 }),
         },
         editor.selections.items,
     );
@@ -1020,17 +1059,15 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(1), .cursor = .fromInt(1) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(2) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 1 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 2 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
     try std.testing.expectEqualStrings("2\n456\n890\n", editor.text.items);
     try std.testing.expectEqualSlices(
         Selection,
-        &.{
-            .{ .anchor = .fromInt(0), .cursor = .fromInt(0) },
-        },
+        &.{.init},
         editor.selections.items,
     );
 
@@ -1050,8 +1087,8 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(1), .cursor = .fromInt(1) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 1 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1059,8 +1096,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(0), .cursor = .fromInt(0) },
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+            .init,
+            .createCursor(.{ .row = 0, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1084,9 +1121,7 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualStrings("\n456\n890\n", editor.text.items);
     try std.testing.expectEqualSlices(
         Selection,
-        &.{
-            .{ .anchor = .fromInt(0), .cursor = .fromInt(0) },
-        },
+        &.{.init},
         editor.selections.items,
     );
 
@@ -1108,9 +1143,9 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(6) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 1, .col = 2 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1118,8 +1153,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(3) },
+            .createCursor(.{ .row = 0, .col = 1 }),
+            .createCursor(.{ .row = 1, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1128,9 +1163,9 @@ test deleteCharacterBeforeCursors {
 
     // Same test, but the selections appear in a different order.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(6) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 1, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1138,8 +1173,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(3) },
+            .createCursor(.{ .row = 0, .col = 1 }),
+            .createCursor(.{ .row = 1, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1148,9 +1183,9 @@ test deleteCharacterBeforeCursors {
 
     // Same test, but the selections appear in a different order.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(6) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(2) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 1, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 2 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1158,8 +1193,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(3) },
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+            .createCursor(.{ .row = 1, .col = 1 }),
+            .createCursor(.{ .row = 0, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1168,9 +1203,9 @@ test deleteCharacterBeforeCursors {
 
     // Same test, but the selections appear in a different order.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(6) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 1, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1178,8 +1213,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(3) },
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+            .createCursor(.{ .row = 1, .col = 1 }),
+            .createCursor(.{ .row = 0, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1188,9 +1223,9 @@ test deleteCharacterBeforeCursors {
 
     // Same test, but the selections appear in a different order.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(6), .cursor = .fromInt(6) });
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 2 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 0, .col = 3 }));
+    try editor.selections.append(talloc, .createCursor(.{ .row = 1, .col = 2 }));
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1198,8 +1233,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(3) },
+            .createCursor(.{ .row = 0, .col = 1 }),
+            .createCursor(.{ .row = 1, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1224,7 +1259,10 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(7) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 1, .col = 3 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1232,7 +1270,7 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(6) },
+            .{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 1, .col = 2 } },
         },
         editor.selections.items,
     );
@@ -1255,7 +1293,10 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1265,7 +1306,7 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
+            .createCursor(.{ .row = 0, .col = 2 }),
         },
         editor.selections.items,
     );
@@ -1289,9 +1330,18 @@ test deleteCharacterBeforeCursors {
     // 3 | +90
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(5), .cursor = .fromInt(7) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(8), .cursor = .fromInt(9) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 1, .col = 1 },
+        .cursor = .{ .row = 1, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 2, .col = 0 },
+        .cursor = .{ .row = 2, .col = 1 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1299,9 +1349,9 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
-            .{ .anchor = .fromInt(4), .cursor = .fromInt(5) },
-            .{ .anchor = .fromInt(6), .cursor = .fromInt(6) },
+            .createCursor(.{ .row = 0, .col = 2 }),
+            .{ .anchor = .{ .row = 1, .col = 1 }, .cursor = .{ .row = 1, .col = 2 } },
+            .createCursor(.{ .row = 2, .col = 0 }),
         },
         editor.selections.items,
     );
@@ -1310,9 +1360,18 @@ test deleteCharacterBeforeCursors {
 
     // Same test, selections in a different order.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(5), .cursor = .fromInt(7) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(8), .cursor = .fromInt(9) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 1, .col = 1 },
+        .cursor = .{ .row = 1, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 2, .col = 0 },
+        .cursor = .{ .row = 2, .col = 1 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1320,9 +1379,9 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(4), .cursor = .fromInt(5) },
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
-            .{ .anchor = .fromInt(6), .cursor = .fromInt(6) },
+            .{ .anchor = .{ .row = 1, .col = 1 }, .cursor = .{ .row = 1, .col = 2 } },
+            .createCursor(.{ .row = 0, .col = 2 }),
+            .createCursor(.{ .row = 2, .col = 0 }),
         },
         editor.selections.items,
     );
@@ -1331,9 +1390,18 @@ test deleteCharacterBeforeCursors {
 
     // Same test, selections in a different order.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(8), .cursor = .fromInt(9) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(5), .cursor = .fromInt(7) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 2, .col = 0 },
+        .cursor = .{ .row = 2, .col = 1 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 1, .col = 1 },
+        .cursor = .{ .row = 1, .col = 3 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1341,9 +1409,9 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(6), .cursor = .fromInt(6) },
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
-            .{ .anchor = .fromInt(4), .cursor = .fromInt(5) },
+            .createCursor(.{ .row = 2, .col = 0 }),
+            .createCursor(.{ .row = 0, .col = 2 }),
+            .{ .anchor = .{ .row = 1, .col = 1 }, .cursor = .{ .row = 1, .col = 2 } },
         },
         editor.selections.items,
     );
@@ -1367,8 +1435,20 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(1), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
+    try editor.selections.append(
+        talloc,
+        .{
+            .anchor = .{ .row = 0, .col = 1 },
+            .cursor = .{ .row = 0, .col = 2 },
+        },
+    );
+    try editor.selections.append(
+        talloc,
+        .{
+            .anchor = .{ .row = 0, .col = 2 },
+            .cursor = .{ .row = 0, .col = 3 },
+        },
+    );
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1376,7 +1456,7 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
+            .createCursor(.{ .row = 0, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1396,8 +1476,14 @@ test deleteCharacterBeforeCursors {
     // 2 | 890
     // 3 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(0), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(4) });
+    try editor.selections.append(talloc, .{
+        .anchor = .init,
+        .cursor = .{ .row = 0, .col = 2 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 1, .col = 0 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1405,8 +1491,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(0), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(2) },
+            .{ .anchor = .init, .cursor = .{ .row = 0, .col = 1 } },
+            .{ .anchor = .{ .row = 0, .col = 1 }, .cursor = .{ .row = 0, .col = 2 } },
         },
         editor.selections.items,
     );
@@ -1422,15 +1508,18 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
     //
-    // After:
-    // FIXME: Should the selections be merged here?
-    //
     // 1 | 0|2^+456
     // 2 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(4) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 3 },
+        .cursor = .{ .row = 0, .col = 2 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 3 },
+        .cursor = .{ .row = 1, .col = 0 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1438,8 +1527,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
+            .{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 0, .col = 1 } },
+            .createCursor(.{ .row = 0, .col = 2 }),
         },
         editor.selections.items,
     );
@@ -1460,8 +1549,14 @@ test deleteCharacterBeforeCursors {
     // 2 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(3), .cursor = .fromInt(5) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 3 },
+        .cursor = .{ .row = 0, .col = 2 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 3 },
+        .cursor = .{ .row = 1, .col = 1 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1469,8 +1564,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(3) },
+            .{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 0, .col = 1 } },
+            .{ .anchor = .{ .row = 0, .col = 2 }, .cursor = .{ .row = 1, .col = 0 } },
         },
         editor.selections.items,
     );
@@ -1493,9 +1588,18 @@ test deleteCharacterBeforeCursors {
     // 2 | ^456
     // 3 | 890
     // 4 |
+    //
+    // FIXME: I think the selections should be merged here because one of the selections has been
+    //        reduced to just the cursor.
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(4), .cursor = .fromInt(3) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 1, .col = 0 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1503,8 +1607,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(2), .cursor = .fromInt(2) },
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(2) },
+            .createCursor(.{ .row = 0, .col = 2 }),
+            .{ .anchor = .{ .row = 1, .col = 0 }, .cursor = .{ .row = 0, .col = 2 } },
         },
         editor.selections.items,
     );
@@ -1527,9 +1631,18 @@ test deleteCharacterBeforeCursors {
     // 3 | 890
     // 4 |
 
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(1), .cursor = .fromInt(2) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(2), .cursor = .fromInt(3) });
-    try editor.selections.append(talloc, .{ .anchor = .fromInt(5), .cursor = .fromInt(6) });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 1 },
+        .cursor = .{ .row = 0, .col = 2 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 0, .col = 2 },
+        .cursor = .{ .row = 0, .col = 3 },
+    });
+    try editor.selections.append(talloc, .{
+        .anchor = .{ .row = 1, .col = 1 },
+        .cursor = .{ .row = 1, .col = 2 },
+    });
 
     try editor.deleteCharacterBeforeCursors(talloc);
 
@@ -1537,8 +1650,8 @@ test deleteCharacterBeforeCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{
-            .{ .anchor = .fromInt(1), .cursor = .fromInt(1) },
-            .{ .anchor = .fromInt(3), .cursor = .fromInt(3) },
+            .createCursor(.{ .row = 0, .col = 1 }),
+            .createCursor(.{ .row = 1, .col = 1 }),
         },
         editor.selections.items,
     );
@@ -1561,7 +1674,7 @@ test tokenize {
     try std.testing.expectEqualSlices(
         Token,
         &.{
-            .{ .pos = .fromInt(0), .text = &.{}, .type = .Text },
+            .{ .pos = .init, .text = &.{}, .type = .Text },
         },
         editor.tokens.items,
     );
@@ -1576,7 +1689,7 @@ test tokenize {
     const token = editor.tokens.items[0];
 
     try std.testing.expectEqual(Editor.TokenType.Text, token.type);
-    try std.testing.expectEqual(Pos.fromInt(0), token.pos);
+    try std.testing.expectEqual(Pos.init, token.pos);
     try std.testing.expectEqualStrings("lorem ipsum\n", token.text);
 }
 
@@ -1591,7 +1704,7 @@ test updateLines {
     // We should always have at least one line.
     try std.testing.expectEqual(1, editor.line_indexes.items.len);
     try std.testing.expectEqualSlices(
-        Pos,
+        IndexPos,
         &.{.fromInt(0)},
         editor.line_indexes.items,
     );
@@ -1602,7 +1715,7 @@ test updateLines {
     try editor.updateLines(talloc);
 
     try std.testing.expectEqualSlices(
-        Pos,
+        IndexPos,
         &.{.fromInt(0)},
         editor.line_indexes.items,
     );
@@ -1615,7 +1728,7 @@ test updateLines {
     try editor.updateLines(talloc);
 
     try std.testing.expectEqualSlices(
-        Pos,
+        IndexPos,
         &.{ .fromInt(0), .fromInt(4) },
         editor.line_indexes.items,
     );
@@ -1628,7 +1741,7 @@ test updateLines {
     try editor.updateLines(talloc);
 
     try std.testing.expectEqualSlices(
-        Pos,
+        IndexPos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(8) },
         editor.line_indexes.items,
     );
@@ -1641,7 +1754,7 @@ test updateLines {
     try editor.updateLines(talloc);
 
     try std.testing.expectEqualSlices(
-        Pos,
+        IndexPos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(8), .fromInt(12) },
         editor.line_indexes.items,
     );
@@ -1654,7 +1767,7 @@ test updateLines {
     try editor.updateLines(talloc);
 
     try std.testing.expectEqualSlices(
-        Pos,
+        IndexPos,
         &.{ .fromInt(0), .fromInt(4), .fromInt(5), .fromInt(6), .fromInt(9), .fromInt(10) },
         editor.line_indexes.items,
     );

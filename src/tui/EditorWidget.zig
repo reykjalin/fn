@@ -141,15 +141,12 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                 else
                     clicked_line.len;
 
-                const clicked_line_start_index = self.editor.line_indexes.items[row].toInt();
-                const cursor_pos = clicked_line_start_index +| col;
-
                 // Clicking should clear all selections.
                 self.editor.selections.clearRetainingCapacity();
-                try self.editor.appendSelection(self.gpa, .{
-                    .cursor = .fromInt(cursor_pos),
-                    .anchor = .fromInt(cursor_pos),
-                });
+                try self.editor.appendSelection(
+                    self.gpa,
+                    .createCursor(.{ .row = row, .col = col }),
+                );
                 self.scroll_bars.scroll_view.cursor = @intCast(row);
 
                 try ctx.requestFocus(self.widget());
@@ -164,7 +161,7 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
             // FIXME: I don't actually know if this works. I can't trigger the paste event from
             //        Ghostty.
             std.log.debug("received paste: '{s}'", .{pasted_text});
-            try self.editor.insertTextBeforeSelection(self.gpa, pasted_text);
+            try self.editor.insertTextAtCursors(self.gpa, pasted_text);
         },
         .key_press => |key| {
             switch (self.mode) {
@@ -200,9 +197,27 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                         // Make sure the cursor beam appears after the character under the cursor.
                         // FIXME: This should probably be some sort of API in `libfn.Editor`.
                         for (self.editor.selections.items) |*s| {
-                            s.cursor = .fromInt(s.cursor.toInt() +| 1);
-                            if (s.cursor.toInt() > self.editor.text.items.len)
-                                s.cursor = .fromInt(self.editor.text.items.len);
+                            if (s.isCursor()) {
+                                const line = self.editor.getLine(s.cursor.row);
+
+                                // Nothing to do if we're at the end of the file.
+                                if (s.cursor.col == line.len and
+                                    s.cursor.row == self.editor.lineCount()) continue;
+
+                                // Move down if we're at the end of a line.
+                                if (s.cursor.col == line.len) {
+                                    s.cursor.row +|= 1;
+                                    s.cursor.col = 0;
+                                } else {
+                                    s.cursor.col +|= 1;
+                                }
+                            } else {
+                                if (s.cursor.comesBefore(s.anchor)) {
+                                    const tmp = s.anchor;
+                                    s.anchor = s.cursor;
+                                    s.cursor = tmp;
+                                }
+                            }
                         }
                         self.mode = .insert;
                         ctx.consumeAndRedraw();
@@ -211,6 +226,19 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                 .insert => {
                     // FIXME: Ensure primary selection is visible in scroll view after edits.
                     if (key.matches(vaxis.Key.escape, .{}) or key.matches('c', .{ .ctrl = true })) {
+                        for (self.editor.selections.items) |*s| {
+                            if (s.isCursor()) continue;
+                            if (s.cursor.col == 0 and s.cursor.row == 0) continue;
+
+                            if (s.cursor.col == 0) {
+                                s.cursor.row -= 1;
+                                const line = self.editor.getLine(s.cursor.row);
+                                s.cursor.col = line.len;
+                            } else {
+                                s.cursor.col -|= 1;
+                            }
+                        }
+
                         self.mode = .normal;
                         ctx.consumeAndRedraw();
                     } else if (key.matches(vaxis.Key.enter, .{})) {
@@ -312,7 +340,7 @@ pub fn updateLineWidgets(self: *EditorWidget) !void {
 
     while (it.next()) |line| : (line_nr += 1) {
         var spans: std.ArrayListUnmanaged(vxfw.RichText.TextSpan) = .empty;
-        const cursor = self.editor.toCoordinatePos(self.editor.getPrimarySelection().cursor);
+        const cursor = self.editor.getPrimarySelection().cursor;
 
         // Add the correct styling for selections and cursors.
         if (line_nr == cursor.row) {
@@ -382,7 +410,7 @@ pub fn draw(self: *EditorWidget, ctx: vxfw.DrawContext) std.mem.Allocator.Error!
 
     // 2. Configure the cursor location.
 
-    const cursor = self.editor.toCoordinatePos(self.editor.getPrimarySelection().cursor);
+    const cursor = self.editor.getPrimarySelection().cursor;
     const number_of_tabs_in_line = std.mem.count(
         u8,
         self.editor.getLine(cursor.row)[0..cursor.col],

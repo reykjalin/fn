@@ -12,15 +12,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Check step for ZLS build-on-save.
-    const libfn_check = b.addLibrary(.{
-        .name = "libfn",
-        .root_module = libfn,
-        .linkage = .static,
-    });
-    const check = b.step("check", "Check if libfn compiles");
-    check.dependOn(&libfn_check.step);
-
     // Tests.
     const libfn_unit_tests = b.addTest(.{
         .root_module = libfn,
@@ -32,8 +23,17 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_libfn_unit_tests.step);
 
     // Docs.
+    // Check step for ZLS build-on-save.
+    const libfn_for_docs = b.addLibrary(.{
+        .name = "libfn",
+        .root_module = libfn,
+        .linkage = .static,
+    });
+    const check_step = b.step("check", "Run checks");
+    check_step.dependOn(&libfn_for_docs.step);
+
     const install_docs = b.addInstallDirectory(.{
-        .source_dir = libfn_check.getEmittedDocs(),
+        .source_dir = libfn_for_docs.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "docs",
     });

@@ -1,114 +1,95 @@
 const std = @import("std");
 
-/// A `Pos` represents a position in the text editor. `Pos` is a wrapper around `usize`. You can use
-/// `fromInt` and `toInt` to convert between `Pos` and `usize`.
-pub const Pos = enum(usize) {
-    _,
+/// A `Pos` represents a position in the text editor. `Pos` is a 2-dimensional position based on
+/// `row` and `col`.
+pub const Pos = @This();
 
-    /// Converts the provided `usize` to a `Pos`.
-    pub fn fromInt(pos: usize) Pos {
-        return @enumFromInt(pos);
-    }
+row: usize,
+col: usize,
 
-    /// Converts this `Pos` to a `usize`.
-    pub fn toInt(self: Pos) usize {
-        return @intFromEnum(self);
-    }
+pub const init: Pos = .{ .row = 0, .col = 0 };
 
-    /// Returns true if both positions are the same.
-    pub fn eql(a: Pos, b: Pos) bool {
-        return a.toInt() == b.toInt();
-    }
+/// Returns true if both positions are the same.
+pub fn eql(self: Pos, other: Pos) bool {
+    return self.row == other.row and self.col == other.col;
+}
 
-    /// Returns `true` if this `Pos` comes before the `other` `Pos`.
-    pub fn comesBefore(self: Pos, other: Pos) bool {
-        return self.toInt() < other.toInt();
-    }
+/// Returns `true` if this `Pos` comes before the `other` `Pos`.
+pub fn comesBefore(self: Pos, other: Pos) bool {
+    if (self.row < other.row) return true;
+    if (self.row > other.row) return false;
+    return self.col < other.col;
+}
 
-    /// Returns `true` if this `Pos` comes after the `other` `Pos`.
-    pub fn comesAfter(self: Pos, other: Pos) bool {
-        return self.toInt() > other.toInt();
-    }
+/// Returns `true` if this `Pos` comes after the `other` `Pos`.
+pub fn comesAfter(self: Pos, other: Pos) bool {
+    if (self.row > other.row) return true;
+    if (self.row < other.row) return false;
+    return self.col > other.col;
+}
 
-    /// Comparison function used for sorting.
-    pub fn lessThan(_: void, lhs: Pos, rhs: Pos) bool {
-        return lhs.comesBefore(rhs);
-    }
+/// Comparison function used for sorting.
+pub fn lessThan(_: void, lhs: Pos, rhs: Pos) bool {
+    return lhs.comesBefore(rhs);
+}
 
-    test fromInt {
-        const a = Pos.fromInt(0);
-        const b = Pos.fromInt(12345);
+test eql {
+    const a: Pos = .{ .row = 0, .col = 3 };
+    const b: Pos = .{ .row = 0, .col = 3 };
 
-        try std.testing.expect(@intFromEnum(a) == 0);
-        try std.testing.expect(@intFromEnum(b) == 12345);
-    }
+    try std.testing.expect(a.eql(b));
+    try std.testing.expect(a.eql(a));
+    try std.testing.expect(b.eql(b));
 
-    test toInt {
-        const a = Pos.fromInt(0);
-        const b = Pos.fromInt(12345);
+    const c: Pos = .{ .row = 4, .col = 0 };
 
-        try std.testing.expect(a.toInt() == 0);
-        try std.testing.expect(b.toInt() == 12345);
-    }
+    try std.testing.expect(!c.eql(a));
+    try std.testing.expect(!c.eql(b));
+    try std.testing.expect(c.eql(c));
 
-    test eql {
-        const a = Pos.fromInt(0);
-        const b = Pos.fromInt(0);
+    const d: Pos = .{ .row = 1, .col = 5 };
 
-        try std.testing.expectEqual(true, Pos.eql(a, b));
-        try std.testing.expectEqual(true, Pos.eql(a, a));
-        try std.testing.expectEqual(true, Pos.eql(b, b));
+    try std.testing.expect(!d.eql(a));
+    try std.testing.expect(!d.eql(b));
+    try std.testing.expect(!d.eql(c));
+    try std.testing.expect(d.eql(d));
+}
 
-        const c = Pos.fromInt(4);
+test comesBefore {
+    const a: Pos = .{ .row = 0, .col = 3 };
+    const b: Pos = .{ .row = 0, .col = 3 };
 
-        try std.testing.expectEqual(false, Pos.eql(c, a));
-        try std.testing.expectEqual(false, Pos.eql(c, b));
-        try std.testing.expectEqual(true, Pos.eql(c, c));
+    try std.testing.expect(!a.comesBefore(b));
+    try std.testing.expect(!b.comesBefore(a));
 
-        const d = Pos.fromInt(3);
+    const c: Pos = .{ .row = 4, .col = 0 };
 
-        try std.testing.expectEqual(false, Pos.eql(d, a));
-        try std.testing.expectEqual(false, Pos.eql(d, b));
-        try std.testing.expectEqual(false, Pos.eql(d, c));
-        try std.testing.expectEqual(true, Pos.eql(d, d));
-    }
+    try std.testing.expect(!c.comesBefore(a));
+    try std.testing.expect(a.comesBefore(c));
 
-    test comesBefore {
-        const a = Pos.fromInt(0);
-        const b = Pos.fromInt(0);
+    const d: Pos = .{ .row = 1, .col = 5 };
 
-        try std.testing.expectEqual(false, a.comesBefore(b));
-        try std.testing.expectEqual(false, b.comesBefore(a));
+    try std.testing.expect(d.comesBefore(c));
+    try std.testing.expect(!c.comesBefore(d));
+}
 
-        const c = Pos.fromInt(4);
+test comesAfter {
+    const a: Pos = .{ .row = 0, .col = 3 };
+    const b: Pos = .{ .row = 0, .col = 3 };
 
-        try std.testing.expectEqual(false, c.comesBefore(a));
-        try std.testing.expectEqual(true, a.comesBefore(c));
+    try std.testing.expect(!a.comesAfter(b));
+    try std.testing.expect(!b.comesAfter(a));
 
-        const d = Pos.fromInt(3);
+    const c: Pos = .{ .row = 4, .col = 0 };
 
-        try std.testing.expectEqual(true, d.comesBefore(c));
-        try std.testing.expectEqual(false, c.comesBefore(d));
-    }
+    try std.testing.expect(c.comesAfter(a));
+    try std.testing.expect(!a.comesAfter(c));
 
-    test comesAfter {
-        const a = Pos.fromInt(0);
-        const b = Pos.fromInt(0);
+    const d: Pos = .{ .row = 1, .col = 5 };
 
-        try std.testing.expectEqual(false, a.comesAfter(b));
-        try std.testing.expectEqual(false, b.comesAfter(a));
-
-        const c = Pos.fromInt(4);
-
-        try std.testing.expectEqual(true, c.comesAfter(a));
-        try std.testing.expectEqual(false, a.comesAfter(c));
-
-        const d = Pos.fromInt(3);
-
-        try std.testing.expectEqual(false, d.comesAfter(c));
-        try std.testing.expectEqual(true, c.comesAfter(d));
-    }
-};
+    try std.testing.expect(!d.comesAfter(c));
+    try std.testing.expect(c.comesAfter(d));
+}
 
 test "refAllDecls" {
     std.testing.refAllDecls(@This());

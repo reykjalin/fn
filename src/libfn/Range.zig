@@ -75,9 +75,9 @@ pub fn hasOverlap(a: Range, b: Range) bool {
 }
 
 test eql {
-    const a: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(3) };
-    const b: Range = .{ .from = Pos.fromInt(3), .to = Pos.fromInt(0) };
-    const c: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(5) };
+    const a: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 3 } };
+    const b: Range = .{ .from = .{ .row = 0, .col = 3 }, .to = .{ .row = 0, .col = 0 } };
+    const c: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 2 } };
 
     try std.testing.expectEqual(true, Range.eql(a, a));
     try std.testing.expectEqual(true, Range.eql(b, b));
@@ -93,9 +93,9 @@ test eql {
 }
 
 test strictEql {
-    const a: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(3) };
-    const b: Range = .{ .from = Pos.fromInt(3), .to = Pos.fromInt(0) };
-    const c: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(5) };
+    const a: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 3 } };
+    const b: Range = .{ .from = .{ .row = 0, .col = 3 }, .to = .{ .row = 0, .col = 0 } };
+    const c: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 2 } };
 
     try std.testing.expectEqual(true, Range.strictEql(a, a));
     try std.testing.expectEqual(true, Range.strictEql(b, b));
@@ -111,101 +111,135 @@ test strictEql {
 }
 
 test isEmpty {
-    const empty: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(1) };
-    const not_empty: Range = .{ .from = Pos.fromInt(1), .to = Pos.fromInt(2) };
+    const empty: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 1 } };
+    const not_empty: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 2 } };
 
     try std.testing.expectEqual(true, empty.isEmpty());
     try std.testing.expectEqual(false, not_empty.isEmpty());
 }
 
 test containsPos {
-    const range: Range = .{
-        .from = Pos.fromInt(1),
-        .to = Pos.fromInt(5),
-    };
+    const range: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 1, .col = 2 } };
 
-    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(1)));
-    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(3)));
-    try std.testing.expectEqual(true, range.containsPos(Pos.fromInt(5)));
+    try std.testing.expect(range.containsPos(.{ .row = 0, .col = 1 }));
+    try std.testing.expect(range.containsPos(.{ .row = 0, .col = 10 }));
+    try std.testing.expect(range.containsPos(.{ .row = 1, .col = 0 }));
+    try std.testing.expect(range.containsPos(.{ .row = 1, .col = 2 }));
 
-    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(0)));
-    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(6)));
-    try std.testing.expectEqual(false, range.containsPos(Pos.fromInt(10)));
+    try std.testing.expect(!range.containsPos(.{ .row = 0, .col = 0 }));
+    try std.testing.expect(!range.containsPos(.{ .row = 1, .col = 3 }));
+    try std.testing.expect(!range.containsPos(.{ .row = 4, .col = 4 }));
 }
 
 test containsRange {
-    const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
+    // const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
+    const a: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 1, .col = 5 } };
+    const same_line: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 0, .col = 10 } };
 
     // 1. Ranges contain themselves and equal ranges.
 
-    try std.testing.expectEqual(true, a.containsRange(a));
+    try std.testing.expect(a.containsRange(a));
 
     // 2. Ranges contain other ranges that fall within themselves.
 
-    // From start edge to inside.
-    const in_a_1: Range = .{ .from = a.from, .to = Pos.fromInt(7) };
+    const in_a_1: Range = .{ .from = a.from, .to = .{ .row = 0, .col = 8 } };
+    const in_same_line_1: Range = .{ .from = same_line.from, .to = .{ .row = 0, .col = 8 } };
     // From inside to end edge.
-    const in_a_2: Range = .{ .from = Pos.fromInt(6), .to = a.to };
+    const in_a_2: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = a.to };
+    const in_same_line_2: Range = .{ .from = .{ .row = 0, .col = 5 }, .to = a.to };
     // Completely inside.
-    const in_a_3: Range = .{ .from = Pos.fromInt(4), .to = Pos.fromInt(8) };
+    const in_a_3: Range = .{ .from = .{ .row = 0, .col = 9 }, .to = .{ .row = 1, .col = 1 } };
+    const in_same_line_3: Range = .{
+        .from = .{ .row = 0, .col = 4 },
+        .to = .{ .row = 0, .col = 8 },
+    };
 
-    try std.testing.expectEqual(true, a.containsRange(in_a_1));
-    try std.testing.expectEqual(true, a.containsRange(in_a_2));
-    try std.testing.expectEqual(true, a.containsRange(in_a_3));
+    try std.testing.expect(Range.hasOverlap(a, in_a_1));
+    try std.testing.expect(Range.hasOverlap(a, in_a_2));
+    try std.testing.expect(Range.hasOverlap(a, in_a_3));
+    try std.testing.expect(Range.hasOverlap(a, in_same_line_1));
+    try std.testing.expect(Range.hasOverlap(a, in_same_line_2));
+    try std.testing.expect(Range.hasOverlap(a, in_same_line_3));
 
     // 3. Ranges do not contain other ranges where one edge is outside.
 
     // Start edge is outside.
-    const outside_a_1: Range = .{ .from = Pos.fromInt(a.from.toInt() -| 2), .to = Pos.fromInt(4) };
+    const outside_a_1: Range = .{
+        .from = .{ .row = a.from.row, .col = a.from.col -| 2 },
+        .to = .{ .row = 1, .col = 10 },
+    };
     // End edge is outside.
-    const outside_a_2: Range = .{ .from = Pos.fromInt(6), .to = Pos.fromInt(a.to.toInt() +| 4) };
+    const outside_a_2: Range = .{
+        .from = .{ .row = 0, .col = 10 },
+        .to = .{ .row = a.to.row, .col = a.to.col +| 4 },
+    };
 
-    try std.testing.expectEqual(false, a.containsRange(outside_a_1));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_2));
+    try std.testing.expect(!a.containsRange(outside_a_1));
+    try std.testing.expect(!a.containsRange(outside_a_2));
 
     // 4. Ranges do not contain other ranges that are entirely outside.
 
     // Outside start, edges are touching.
-    const outside_a_3: Range = .{ .from = Pos.fromInt(0), .to = a.from };
-    // Outside start, edges not touching.
-    const outside_a_4: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(a.from.toInt() -| 1) };
+    const outside_a_3: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = a.from };
     // Outside end, edges are touching.
-    const outside_a_5: Range = .{ .from = a.to, .to = Pos.fromInt(a.to.toInt() +| 4) };
+    const outside_a_4: Range = .{ .from = a.to, .to = .{ .row = a.to.row, .col = a.to.col +| 4 } };
+    // Outside start, edges not touching.
+    const outside_a_5: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 1 } };
     // Outside end, edges not touching.
-    const outside_a_6: Range = .{ .from = Pos.fromInt(a.to.toInt() +| 1), .to = Pos.fromInt(a.to.toInt() +| 4) };
+    const outside_a_6: Range = .{
+        .from = .{ .row = a.to.row, .col = a.to.col +| 1 },
+        .to = .{ .row = a.to.row, .col = a.to.col +| 4 },
+    };
 
-    try std.testing.expectEqual(false, a.containsRange(outside_a_3));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_4));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_5));
-    try std.testing.expectEqual(false, a.containsRange(outside_a_6));
+    try std.testing.expect(!a.containsRange(outside_a_3));
+    try std.testing.expect(!a.containsRange(outside_a_4));
+    try std.testing.expect(!a.containsRange(outside_a_5));
+    try std.testing.expect(!a.containsRange(outside_a_6));
 }
 
 test hasOverlap {
-    const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
+    // const a: Range = .{ .from = Pos.fromInt(2), .to = Pos.fromInt(10) };
+    const a: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 1, .col = 5 } };
+    const same_line: Range = .{ .from = .{ .row = 0, .col = 2 }, .to = .{ .row = 0, .col = 10 } };
 
     // 1. Ranges overlap themselves and equal ranges.
 
-    try std.testing.expectEqual(true, Range.hasOverlap(a, a));
+    try std.testing.expect(Range.hasOverlap(a, a));
 
     // 2. Ranges overlap containing ranges.
 
     // From start edge to inside.
-    const in_a_1: Range = .{ .from = a.from, .to = Pos.fromInt(7) };
+    const in_a_1: Range = .{ .from = a.from, .to = .{ .row = 0, .col = 8 } };
+    const in_same_line_1: Range = .{ .from = same_line.from, .to = .{ .row = 0, .col = 8 } };
     // From inside to end edge.
-    const in_a_2: Range = .{ .from = Pos.fromInt(6), .to = a.to };
+    const in_a_2: Range = .{ .from = .{ .row = 1, .col = 3 }, .to = a.to };
+    const in_same_line_2: Range = .{ .from = .{ .row = 0, .col = 5 }, .to = a.to };
     // Completely inside.
-    const in_a_3: Range = .{ .from = Pos.fromInt(4), .to = Pos.fromInt(8) };
+    const in_a_3: Range = .{ .from = .{ .row = 0, .col = 9 }, .to = .{ .row = 1, .col = 1 } };
+    const in_same_line_3: Range = .{
+        .from = .{ .row = 0, .col = 4 },
+        .to = .{ .row = 0, .col = 8 },
+    };
 
-    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_1));
-    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_2));
-    try std.testing.expectEqual(true, Range.hasOverlap(a, in_a_3));
+    try std.testing.expect(Range.hasOverlap(a, in_a_1));
+    try std.testing.expect(Range.hasOverlap(a, in_a_2));
+    try std.testing.expect(Range.hasOverlap(a, in_a_3));
+    try std.testing.expect(Range.hasOverlap(a, in_same_line_1));
+    try std.testing.expect(Range.hasOverlap(a, in_same_line_2));
+    try std.testing.expect(Range.hasOverlap(a, in_same_line_3));
 
     // 3. Ranges overlap when only one edge is inside the other.
 
     // Start edge is outside.
-    const outside_a_1: Range = .{ .from = Pos.fromInt(a.from.toInt() -| 2), .to = Pos.fromInt(4) };
+    const outside_a_1: Range = .{
+        .from = .{ .row = a.from.row, .col = a.from.col -| 2 },
+        .to = .{ .row = 1, .col = 10 },
+    };
     // End edge is outside.
-    const outside_a_2: Range = .{ .from = Pos.fromInt(6), .to = Pos.fromInt(a.to.toInt() +| 4) };
+    const outside_a_2: Range = .{
+        .from = .{ .row = 0, .col = 10 },
+        .to = .{ .row = a.to.row, .col = a.to.col +| 4 },
+    };
 
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_1));
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_2));
@@ -215,9 +249,9 @@ test hasOverlap {
     //          implement this if they do, so leaving this as is for now.
 
     // Outside start, edges are touching.
-    const outside_a_3: Range = .{ .from = Pos.fromInt(0), .to = a.from };
+    const outside_a_3: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = a.from };
     // Outside end, edges are touching.
-    const outside_a_4: Range = .{ .from = a.to, .to = Pos.fromInt(a.to.toInt() +| 4) };
+    const outside_a_4: Range = .{ .from = a.to, .to = .{ .row = a.to.row, .col = a.to.col +| 4 } };
 
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_3));
     try std.testing.expectEqual(true, Range.hasOverlap(a, outside_a_4));
@@ -225,17 +259,20 @@ test hasOverlap {
     // 5. Ranges do not overlap when one does not contain an edge from the other.
 
     // Outside start, edges not touching.
-    const outside_a_5: Range = .{ .from = Pos.fromInt(0), .to = Pos.fromInt(a.from.toInt() -| 1) };
+    const outside_a_5: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 1 } };
     // Outside end, edges not touching.
-    const outside_a_6: Range = .{ .from = Pos.fromInt(a.to.toInt() +| 1), .to = Pos.fromInt(a.to.toInt() +| 4) };
+    const outside_a_6: Range = .{
+        .from = .{ .row = a.to.row, .col = a.to.col +| 1 },
+        .to = .{ .row = a.to.row, .col = a.to.col +| 4 },
+    };
 
     try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_5));
     try std.testing.expectEqual(false, Range.hasOverlap(a, outside_a_6));
 
     // 6. The latter parameter to hasOverlap contains the former parameter, but not vice versa.
 
-    const former: Range = .{ .from = .fromInt(1), .to = .fromInt(1) };
-    const latter: Range = .{ .from = .fromInt(0), .to = .fromInt(5) };
+    const former: Range = .{ .from = .{ .row = 0, .col = 1 }, .to = .{ .row = 0, .col = 1 } };
+    const latter: Range = .{ .from = .{ .row = 0, .col = 0 }, .to = .{ .row = 0, .col = 5 } };
     try std.testing.expect(Range.hasOverlap(former, latter));
 }
 

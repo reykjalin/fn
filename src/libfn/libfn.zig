@@ -8,7 +8,8 @@
 
 const std = @import("std");
 
-pub const Pos = @import("pos.zig").Pos;
+pub const Pos = @import("pos.zig");
+pub const IndexPos = @import("indexpos.zig");
 pub const Range = @import("Range.zig");
 pub const Selection = @import("Selection.zig");
 pub const Editor = @import("Editor.zig");
