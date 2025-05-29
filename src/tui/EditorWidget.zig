@@ -308,13 +308,44 @@ pub fn updateLineWidgets(self: *EditorWidget) !void {
     const arena = self.arena_state.allocator();
 
     var it = std.mem.splitScalar(u8, self.editor.text.items, '\n');
+    var line_nr: usize = 0;
 
-    while (it.next()) |line| {
+    while (it.next()) |line| : (line_nr += 1) {
         var spans: std.ArrayListUnmanaged(vxfw.RichText.TextSpan) = .empty;
+        const cursor = self.editor.toCoordinatePos(self.editor.getPrimarySelection().cursor);
 
-        try spans.append(arena, .{
-            .text = if (std.mem.eql(u8, line, "")) " " else line,
-        });
+        // Add the correct styling for selections and cursors.
+        if (line_nr == cursor.row) {
+            const number_of_tabs_in_line = std.mem.count(
+                u8,
+                self.editor.getLine(cursor.row)[0..cursor.col],
+                "\t",
+            );
+            const screen_cursor_column =
+                // Our representation of where in the line of text the cursor is.
+                cursor.col -
+                // Use the right width for all tab characters.
+                number_of_tabs_in_line +
+                (TAB_REPLACEMENT.len * number_of_tabs_in_line);
+
+            const col: u16 = @truncate(@min(screen_cursor_column, line.len));
+
+            var before_col: std.ArrayListUnmanaged(u8) = .empty;
+            var at_col: std.ArrayListUnmanaged(u8) = .empty;
+            var after_col: std.ArrayListUnmanaged(u8) = .empty;
+
+            if (col != 0) try before_col.appendSlice(arena, line[0..col]);
+            if (col < line.len) try at_col.append(arena, line[col]) else try at_col.append(arena, ' ');
+            if (col < line.len -| 1) try after_col.appendSlice(arena, line[col +| 1..]);
+
+            try spans.append(arena, .{ .text = before_col.items });
+            try spans.append(arena, .{ .text = at_col.items, .style = .{ .reverse = self.mode != .insert } });
+            try spans.append(arena, .{ .text = after_col.items });
+        } else {
+            try spans.append(arena, .{
+                .text = if (std.mem.eql(u8, line, "")) " " else line,
+            });
+        }
 
         try self.line_widgets.append(self.gpa, .{
             .text = spans.items,
@@ -374,12 +405,15 @@ pub fn draw(self: *EditorWidget, ctx: vxfw.DrawContext) std.mem.Allocator.Error!
     if (cursor.row >= self.scroll_bars.scroll_view.scroll.top) {
         var row: u16 = @truncate(cursor.row);
         row -= @truncate(self.scroll_bars.scroll_view.scroll.top);
+        const col: u16 = @truncate(screen_cursor_column);
 
-        cursor_state = .{
-            .row = row,
-            .col = @truncate(screen_cursor_column),
-            .shape = if (self.mode == .insert) .beam_blink else .block,
-        };
+        if (self.mode == .insert) {
+            cursor_state = .{
+                .row = row,
+                .col = col,
+                .shape = .beam_blink,
+            };
+        }
     }
 
     return .{

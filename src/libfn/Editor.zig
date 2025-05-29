@@ -190,13 +190,15 @@ pub fn moveSelectionsUp(self: *Editor) void {
 pub fn moveSelectionsDown(self: *Editor) void {
     for (self.selections.items) |*s| {
         var cursor = self.toCoordinatePos(s.cursor);
-        if (cursor.row == self.text.items.len) {
-            s.cursor = .fromInt(self.text.items.len);
-        } else {
-            cursor.row += 1;
-            const line = self.getLine(cursor.row);
-            if (cursor.col > line.len) cursor.col = line.len;
+        cursor.row +|= 1;
+
+        // Keep the cursor where it is when we try to move beyond the last line.
+        if (cursor.row >= self.lineCount()) {
+            continue;
         }
+
+        const line = self.getLine(cursor.row);
+        if (cursor.col > line.len) cursor.col = line.len;
 
         s.cursor = self.toPos(cursor);
         s.anchor = s.cursor;
