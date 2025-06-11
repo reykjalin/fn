@@ -113,6 +113,10 @@ pub fn merge(a: Selection, b: Selection) Selection {
     return .{ .anchor = b.toRange().after(), .cursor = a.cursor };
 }
 
+pub fn lessThan(_: void, lhs: Selection, rhs: Selection) bool {
+    return lhs.cursor.comesBefore(rhs.cursor);
+}
+
 test merge {
     // 1. If one selection contains the other, just return the containing selection.
 

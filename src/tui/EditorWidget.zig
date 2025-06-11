@@ -12,6 +12,7 @@ pub const TAB_REPLACEMENT = "        ";
 const Mode = enum {
     normal,
     insert,
+    select,
 };
 
 pub const EditorWidget = @This();
@@ -165,6 +166,22 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
         },
         .key_press => |key| {
             switch (self.mode) {
+                .select => {
+                    if (key.matches('v', .{}) or key.matches(vaxis.Key.escape, .{})) {
+                        self.mode = .normal;
+                        ctx.consumeAndRedraw();
+                    } else if (key.matches('l', .{}) or key.matches(vaxis.Key.right, .{})) {
+                        for (self.editor.selections.items) |*s| {
+                            s.cursor.col +|= 1;
+                        }
+                        ctx.consumeAndRedraw();
+                    } else if (key.matches('h', .{}) or key.matches(vaxis.Key.left, .{})) {
+                        for (self.editor.selections.items) |*s| {
+                            s.cursor.col -|= 1;
+                        }
+                        ctx.consumeAndRedraw();
+                    }
+                },
                 .normal => {
                     if (key.matches('h', .{}) or key.matches(vaxis.Key.left, .{})) {
                         self.editor.moveSelectionsLeft();
@@ -188,12 +205,31 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                         self.editor.copySelectionsContent();
                         try self.editor.deleteCharacterBeforeCursors(self.gpa);
                         ctx.consumeAndRedraw();
+                    } else if (key.matches('v', .{})) {
+                        self.mode = .select;
+                        ctx.consumeAndRedraw();
                     } else if (key.matches('i', .{})) {
                         self.editor.moveCursorBeforeAnchorForAllSelections();
+
+                        // Make sure we anchor the cursor position to the end of the line it's
+                        // currently on.
+                        for (self.editor.selections.items) |*s| {
+                            const line = self.editor.getLine(s.cursor.row);
+                            s.cursor.col = @min(s.cursor.col, line.len);
+                        }
+
                         self.mode = .insert;
                         ctx.consumeAndRedraw();
                     } else if (key.matches('a', .{})) {
                         self.editor.moveCursorAfterAnchorForAllSelections();
+
+                        // Make sure we anchor the cursor position to the end of the line it's
+                        // currently on.
+                        for (self.editor.selections.items) |*s| {
+                            const line = self.editor.getLine(s.cursor.row);
+                            s.cursor.col = @min(s.cursor.col, line.len);
+                        }
+
                         // Make sure the cursor beam appears after the character under the cursor.
                         // FIXME: This should probably be some sort of API in `libfn.Editor`.
                         for (self.editor.selections.items) |*s| {
@@ -201,21 +237,15 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                                 const line = self.editor.getLine(s.cursor.row);
 
                                 // Nothing to do if we're at the end of the file.
-                                if (s.cursor.col == line.len and
-                                    s.cursor.row == self.editor.lineCount()) continue;
+                                if (s.cursor.row == self.editor.lineCount() - 1 and
+                                    s.cursor.col == line.len) continue;
+
+                                s.cursor.col +|= 1;
 
                                 // Move down if we're at the end of a line.
-                                if (s.cursor.col == line.len) {
+                                if (s.cursor.col > line.len) {
                                     s.cursor.row +|= 1;
                                     s.cursor.col = 0;
-                                } else {
-                                    s.cursor.col +|= 1;
-                                }
-                            } else {
-                                if (s.cursor.comesBefore(s.anchor)) {
-                                    const tmp = s.anchor;
-                                    s.anchor = s.cursor;
-                                    s.cursor = tmp;
                                 }
                             }
                         }
@@ -338,37 +368,81 @@ pub fn updateLineWidgets(self: *EditorWidget) !void {
     var it = std.mem.splitScalar(u8, self.editor.text.items, '\n');
     var line_nr: usize = 0;
 
+    // Get a sorted array of selections
+    var selections: std.ArrayListUnmanaged(libfn.Selection) = .empty;
+    try selections.ensureTotalCapacityPrecise(arena, self.editor.selections.items.len);
+    selections.appendSliceAssumeCapacity(self.editor.selections.items);
+    std.mem.sort(libfn.Selection, selections.items, {}, libfn.Selection.lessThan);
+
+    const primary_selection = self.editor.getPrimarySelection();
+    const cursor = primary_selection.cursor;
+    const before = primary_selection.toRange().before();
+    const after = primary_selection.toRange().after();
+
     while (it.next()) |line| : (line_nr += 1) {
         var spans: std.ArrayListUnmanaged(vxfw.RichText.TextSpan) = .empty;
-        const cursor = self.editor.getPrimarySelection().cursor;
 
         // Add the correct styling for selections and cursors.
         if (line_nr == cursor.row) {
-            const number_of_tabs_in_line = std.mem.count(
+            const line_to_before = @min(before.col, line.len);
+            const number_of_tabs_before_before = std.mem.count(
                 u8,
-                self.editor.getLine(cursor.row)[0..cursor.col],
+                line[0..line_to_before],
                 "\t",
             );
-            const screen_cursor_column =
-                // Our representation of where in the line of text the cursor is.
-                cursor.col -
+            const screen_before_column =
+                // Our representation of where in the line of text the anchor is.
+                before.col -
                 // Use the right width for all tab characters.
-                number_of_tabs_in_line +
-                (TAB_REPLACEMENT.len * number_of_tabs_in_line);
+                number_of_tabs_before_before +
+                (TAB_REPLACEMENT.len * number_of_tabs_before_before);
 
-            const col: u16 = @truncate(@min(screen_cursor_column, line.len));
+            const line_to_after = @min(after.col, line.len);
+            const number_of_tabs_before_after = std.mem.count(
+                u8,
+                line[0..line_to_after],
+                "\t",
+            );
+            const screen_after_column =
+                // Our representation of where in the line of text the cursor is.
+                after.col -
+                // Use the right width for all tab characters.
+                number_of_tabs_before_after +
+                (TAB_REPLACEMENT.len * number_of_tabs_before_after);
 
-            var before_col: std.ArrayListUnmanaged(u8) = .empty;
-            var at_col: std.ArrayListUnmanaged(u8) = .empty;
-            var after_col: std.ArrayListUnmanaged(u8) = .empty;
+            const before_col: u16 = @truncate(@min(screen_before_column, line.len));
+            const after_col: u16 = @truncate(@min(screen_after_column, line.len));
 
-            if (col != 0) try before_col.appendSlice(arena, line[0..col]);
-            if (col < line.len) try at_col.append(arena, line[col]) else try at_col.append(arena, ' ');
-            if (col < line.len -| 1) try after_col.appendSlice(arena, line[col +| 1..]);
+            var before_before_col: std.ArrayListUnmanaged(u8) = .empty;
+            var before_col_to_after_col: std.ArrayListUnmanaged(u8) = .empty;
+            var at_cursor_col: std.ArrayListUnmanaged(u8) = .empty;
+            var after_after_col: std.ArrayListUnmanaged(u8) = .empty;
 
-            try spans.append(arena, .{ .text = before_col.items });
-            try spans.append(arena, .{ .text = at_col.items, .style = .{ .reverse = self.mode != .insert } });
-            try spans.append(arena, .{ .text = after_col.items });
+            if (before_col != 0) try before_before_col.appendSlice(arena, line[0..before_col]);
+
+            if (before_col != after_col) {
+                if (before_col == cursor.col)
+                    try before_col_to_after_col.appendSlice(arena, line[before_col +| 1..after_col +| 1])
+                else
+                    try before_col_to_after_col.appendSlice(arena, line[before_col..after_col]);
+            }
+
+            if (cursor.col < line.len)
+                try at_cursor_col.append(arena, line[cursor.col])
+            else
+                try at_cursor_col.append(arena, ' ');
+
+            if (after_col < line.len) try after_after_col.appendSlice(arena, line[after_col +| 1..]);
+
+            try spans.append(arena, .{ .text = before_before_col.items });
+            if (cursor.eql(before)) {
+                try spans.append(arena, .{ .text = at_cursor_col.items, .style = .{ .fg = c_mocha.base, .bg = c_mocha.rosewater } });
+                try spans.append(arena, .{ .text = before_col_to_after_col.items, .style = .{ .bg = c_mocha.surface_2 } });
+            } else {
+                try spans.append(arena, .{ .text = before_col_to_after_col.items, .style = .{ .bg = c_mocha.surface_2 } });
+                try spans.append(arena, .{ .text = at_cursor_col.items, .style = .{ .fg = c_mocha.base, .bg = c_mocha.rosewater } });
+            }
+            try spans.append(arena, .{ .text = after_after_col.items });
         } else {
             try spans.append(arena, .{
                 .text = if (std.mem.eql(u8, line, "")) " " else line,
@@ -411,37 +485,38 @@ pub fn draw(self: *EditorWidget, ctx: vxfw.DrawContext) std.mem.Allocator.Error!
     // 2. Configure the cursor location.
 
     const cursor = self.editor.getPrimarySelection().cursor;
-    const number_of_tabs_in_line = std.mem.count(
-        u8,
-        self.editor.getLine(cursor.row)[0..cursor.col],
-        "\t",
-    );
-
-    // Extra padding for the scroll view's cursor width, if it's going to be drawn.
-    const scroll_view_cursor_padding: u16 = if (self.scroll_bars.scroll_view.draw_cursor) 2 else 0;
-
-    const screen_cursor_column =
-        // Our representation of where in the line of text the cursor is.
-        cursor.col -
-        // Use the right width for all tab characters.
-        number_of_tabs_in_line +
-        (TAB_REPLACEMENT.len * number_of_tabs_in_line) +
-        scroll_view_cursor_padding;
-
-    // We only show the cursor if it's actually visible.
     var cursor_state: ?vxfw.CursorState = null;
-    if (cursor.row >= self.scroll_bars.scroll_view.scroll.top) {
+
+    if (self.mode == .insert and cursor.row >= self.scroll_bars.scroll_view.scroll.top) {
+        const line = self.editor.getLine(cursor.row);
+        const cursor_col = @min(cursor.col, line.len);
+        const number_of_tabs_in_line = std.mem.count(
+            u8,
+            line[0..cursor_col],
+            "\t",
+        );
+
+        // Extra padding for the scroll view's cursor width, if it's going to be drawn.
+        const scroll_view_cursor_padding: u16 = if (self.scroll_bars.scroll_view.draw_cursor) 2 else 0;
+
+        const screen_cursor_column =
+            // Our representation of where in the line of text the cursor is.
+            cursor_col -
+            // Use the right width for all tab characters.
+            number_of_tabs_in_line +
+            (TAB_REPLACEMENT.len * number_of_tabs_in_line) +
+            scroll_view_cursor_padding;
+
+        // We only show the cursor if it's actually visible.
         var row: u16 = @truncate(cursor.row);
         row -= @truncate(self.scroll_bars.scroll_view.scroll.top);
         const col: u16 = @truncate(screen_cursor_column);
 
-        if (self.mode == .insert) {
-            cursor_state = .{
-                .row = row,
-                .col = col,
-                .shape = .beam_blink,
-            };
-        }
+        cursor_state = .{
+            .row = row,
+            .col = col,
+            .shape = .beam_blink,
+        };
     }
 
     return .{

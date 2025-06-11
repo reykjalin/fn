@@ -66,7 +66,7 @@ pub fn init(allocator: Allocator) !Editor {
     var selections: std.ArrayListUnmanaged(Selection) = .empty;
     try selections.append(
         allocator,
-        .{ .anchor = .{ .row = 0, .col = 0 }, .cursor = .{ .row = 0, .col = 0 } },
+        .init,
     );
 
     var lines: std.ArrayListUnmanaged(IndexPos) = .empty;
@@ -194,9 +194,6 @@ pub fn moveSelectionsDown(self: *Editor) void {
             continue;
         }
 
-        const line = self.getLine(cursor.row);
-        if (cursor.col > line.len) cursor.col = line.len;
-
         s.cursor = cursor;
         s.anchor = s.cursor;
     }
@@ -216,7 +213,7 @@ pub fn moveSelectionsLeft(self: *Editor) void {
         if (s.cursor.col == 0 and s.cursor.row > 0) {
             s.cursor.row -= 1;
             const new_line = self.getLine(s.cursor.row);
-            s.cursor.col = new_line.len;
+            s.cursor.col = new_line.len -| 1;
         } else {
             s.cursor.col -|= 1;
         }
@@ -236,10 +233,10 @@ pub fn moveSelectionsRight(self: *Editor) void {
 
         s.cursor.col +|= 1;
 
-        if (s.cursor.col > line.len and s.cursor.row < num_lines) {
+        if (s.cursor.col > line.len -| 1 and s.cursor.row < num_lines) {
             s.cursor.row +|= 1;
             s.cursor.col = 0;
-        } else if (s.cursor.row == num_lines) {
+        } else if (s.cursor.col > line.len -| 1 and s.cursor.row == num_lines) {
             s.cursor.col = line.len;
         }
 
@@ -312,12 +309,13 @@ pub fn getPrimarySelection(self: *const Editor) Selection {
 
 /// Returns the requested 0-indexed line. Asserts that the line is a valid line number. The editor
 /// owns the memory returned, caller must not change or free the returned text.
+/// Includes the new line character at the end of the line.
 pub fn getLine(self: *const Editor, line: usize) []const u8 {
     std.debug.assert(line < self.line_indexes.items.len);
 
     const start_idx = self.line_indexes.items[line].toInt();
     const end_idx = if (line < self.line_indexes.items.len -| 1)
-        self.line_indexes.items[line + 1].toInt() -| 1
+        self.line_indexes.items[line + 1].toInt()
     else
         self.text.items.len;
 
@@ -670,6 +668,11 @@ fn hasOverlappingSelections(self: *const Editor) bool {
 }
 
 const talloc = std.testing.allocator;
+
+test init {
+    var editor = try Editor.init(talloc);
+    defer editor.deinit(talloc);
+}
 
 test toPos {
     var editor = try Editor.init(talloc);
@@ -1781,19 +1784,19 @@ test "getLine" {
     try editor.updateLines(talloc);
 
     try std.testing.expectEqualStrings(
-        "012",
+        "012\n",
         editor.getLine(0),
     );
     try std.testing.expectEqualStrings(
-        "345",
+        "345\n",
         editor.getLine(1),
     );
     try std.testing.expectEqualStrings(
-        "456",
+        "456\n",
         editor.getLine(2),
     );
     try std.testing.expectEqualStrings(
-        "",
+        "\n",
         editor.getLine(3),
     );
     try std.testing.expectEqualStrings(

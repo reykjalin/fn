@@ -30,3 +30,5 @@ pub const surface_0: vaxis.Cell.Color = .{ .rgb = .{ 49, 50, 68 } };
 pub const base: vaxis.Cell.Color = .{ .rgb = .{ 30, 30, 46 } };
 pub const mantle: vaxis.Cell.Color = .{ .rgb = .{ 24, 24, 37 } };
 pub const crust: vaxis.Cell.Color = .{ .rgb = .{ 17, 17, 27 } };
+
+pub const overlay_2_as_bg: vaxis.Cell.Color = .{ .rgb = .{ 45, 47, 58 } };
