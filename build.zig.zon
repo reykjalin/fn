@@ -12,13 +12,11 @@
             .url = "git+https://github.com/rockorager/libvaxis#84d6cb381c0d628550fac3f6daa24c5faf7b2cd1",
             .hash = "vaxis-0.1.0-BWNV_O8OCQBC4w-MnOGaKw9zFVFgTxf3XfcvgScUagEJ",
         },
-        .ourio = .{
-            .url = "git+https://github.com/rockorager/ourio.git#e8e6bb21c22d3e04374bf265ba48162a53b018c8",
-            .hash = "ourio-0.0.0-_s-z0dEWAgDS7Z7E3c3YOxAnLMKtQyU8foCdZCMwtSxb",
-        },
     },
     .paths = .{
         "src/libfn",
+        "build.zig",
+        "build.zig.zon",
         "README.md",
         "LICENSE",
     },

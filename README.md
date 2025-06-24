@@ -26,16 +26,16 @@ A secondary goal is for `fn` to eventually have both a GUI and a TUI powered by 
 
 ```sh
 # Debug build in ./zig-out/bin/fn.
-zig build -Dtui
+zig build
 
 # Run debug build in current directory.
-zig build run -Dtui
+zig build run
 
 # Open a file with debug build.
-zig build run -Dtui -- path/to/file
+zig build run -- path/to/file
 
 # Release build in ~/.local/bin/fn.
-zig build -Dtui -Doptimize=ReleaseSafe --prefix ~/.local
+zig build -Doptimize=ReleaseSafe --prefix ~/.local
 ```
 
 ## Usage

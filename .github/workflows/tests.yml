@@ -16,6 +16,6 @@ jobs:
         run: zig build check
       - name: Run libfn tests
         run: zig build test
-      - name: Compile fn tui
+      - name: Compile fn lib and TUI
         run: |
-          zig build -Dtui
+          zig build

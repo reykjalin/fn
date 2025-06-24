@@ -11,6 +11,6 @@ tasks:
   - test-libfn: |
       cd fn
       zig build test || zig build test
-  - compile-fn-tui: |
+  - compile-fn-lib-and-tui: |
       cd fn
-      zig build -Dtui || zig build -Dtui
+      zig build || zig build
