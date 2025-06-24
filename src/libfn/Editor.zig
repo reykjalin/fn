@@ -236,8 +236,12 @@ pub fn moveSelectionsRight(self: *Editor) void {
         if (s.cursor.col > line.len -| 1 and s.cursor.row < num_lines) {
             s.cursor.row +|= 1;
             s.cursor.col = 0;
-        } else if (s.cursor.col > line.len -| 1 and s.cursor.row == num_lines) {
-            s.cursor.col = line.len;
+        } else if (s.cursor.row == num_lines) {
+            // We want to allow the cursor to appear as if there's a new line at the end of a file
+            // so it can be moved beyond the end, so to speak.
+            const max_col = if (std.mem.endsWith(u8, line, "\n")) line.len else line.len +| 1;
+            if (s.cursor.col > max_col)
+                s.cursor.col = max_col;
         }
 
         s.anchor = s.cursor;
@@ -503,11 +507,11 @@ pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8
             if (s.comesBefore(other.*)) {
                 other.cursor = .{
                     .row = other.cursor.row +| num_new_lines,
-                    .col = if (last_new_line) |i| text[i..].len else other.cursor.col +| text.len,
+                    .col = if (last_new_line) |i| text[i +| 1..].len else other.cursor.col +| text.len,
                 };
                 other.anchor = .{
                     .row = other.anchor.row +| num_new_lines,
-                    .col = if (last_new_line) |i| text[i..].len else other.anchor.col +| text.len,
+                    .col = if (last_new_line) |i| text[i +| 1..].len else other.anchor.col +| text.len,
                 };
             }
         }
@@ -516,22 +520,22 @@ pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8
         if (s.isCursor()) {
             s.cursor = .{
                 .row = s.cursor.row +| num_new_lines,
-                .col = if (last_new_line) |i| text[i..].len else s.cursor.col +| text.len,
+                .col = if (last_new_line) |i| text[i +| 1..].len else s.cursor.col +| text.len,
             };
             s.anchor = s.cursor;
         } else if (s.cursor.comesBefore(s.anchor)) {
             s.cursor = .{
                 .row = s.cursor.row +| num_new_lines,
-                .col = if (last_new_line) |i| text[i..].len else s.cursor.col +| text.len,
+                .col = if (last_new_line) |i| text[i +| 1..].len else s.cursor.col +| text.len,
             };
             s.anchor = .{
                 .row = s.anchor.row +| num_new_lines,
-                .col = if (last_new_line) |i| text[i..].len else s.anchor.col +| text.len,
+                .col = if (last_new_line) |i| text[i +| 1..].len else s.anchor.col +| text.len,
             };
         } else {
             s.cursor = .{
                 .row = s.cursor.row +| num_new_lines,
-                .col = if (last_new_line) |i| text[i..].len else s.cursor.col +| text.len,
+                .col = if (last_new_line) |i| text[i +| 1..].len else s.cursor.col +| text.len,
             };
         }
     }
@@ -773,7 +777,7 @@ test lineCount {
 }
 
 test insertTextAtCursors {
-    var editor = try Editor.init(talloc);
+    var editor: Editor = try .init(talloc);
     defer editor.deinit(talloc);
 
     // 1. Insertion happens at initial cursor to begin with.
@@ -830,6 +834,56 @@ test insertTextAtCursors {
             .{ .anchor = .{ .row = 0, .col = 15 }, .cursor = .{ .row = 0, .col = 21 } },
             .{ .anchor = .{ .row = 0, .col = 28 }, .cursor = .{ .row = 0, .col = 26 } },
         },
+        editor.selections.items,
+    );
+
+    // Reset.
+    editor.deinit(talloc);
+    editor = try .init(talloc);
+
+    // 4. New lines handled correctly.
+
+    try editor.insertTextAtCursors(talloc, "\n");
+    try std.testing.expectEqualStrings(
+        "\n",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.createCursor(.{ .row = 1, .col = 0 })},
+        editor.selections.items,
+    );
+
+    try editor.insertTextAtCursors(talloc, "\n");
+    try std.testing.expectEqualStrings(
+        "\n\n",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.createCursor(.{ .row = 2, .col = 0 })},
+        editor.selections.items,
+    );
+
+    try editor.insertTextAtCursors(talloc, "a\n");
+    try std.testing.expectEqualStrings(
+        "\n\na\n",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.createCursor(.{ .row = 3, .col = 0 })},
+        editor.selections.items,
+    );
+
+    try editor.insertTextAtCursors(talloc, "\n\n\n");
+    try std.testing.expectEqualStrings(
+        "\n\na\n\n\n\n",
+        editor.text.items,
+    );
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.createCursor(.{ .row = 6, .col = 0 })},
         editor.selections.items,
     );
 }

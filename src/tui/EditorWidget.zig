@@ -243,7 +243,7 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                                 s.cursor.col +|= 1;
 
                                 // Move down if we're at the end of a line.
-                                if (s.cursor.col > line.len) {
+                                if (s.cursor.col >= line.len) {
                                     s.cursor.row +|= 1;
                                     s.cursor.col = 0;
                                 }
@@ -415,33 +415,24 @@ pub fn updateLineWidgets(self: *EditorWidget) !void {
 
             var before_before_col: std.ArrayListUnmanaged(u8) = .empty;
             var before_col_to_after_col: std.ArrayListUnmanaged(u8) = .empty;
-            var at_cursor_col: std.ArrayListUnmanaged(u8) = .empty;
             var after_after_col: std.ArrayListUnmanaged(u8) = .empty;
 
             if (before_col != 0) try before_before_col.appendSlice(arena, line[0..before_col]);
 
             if (before_col != after_col) {
-                if (before_col == cursor.col)
-                    try before_col_to_after_col.appendSlice(arena, line[before_col +| 1..after_col +| 1])
-                else
-                    try before_col_to_after_col.appendSlice(arena, line[before_col..after_col]);
+                try before_col_to_after_col.appendSlice(arena, line[before_col..after_col]);
             }
 
-            if (cursor.col < line.len)
-                try at_cursor_col.append(arena, line[cursor.col])
-            else
-                try at_cursor_col.append(arena, ' ');
-
-            if (after_col < line.len) try after_after_col.appendSlice(arena, line[after_col +| 1..]);
+            if (after_col < line.len) try after_after_col.appendSlice(
+                arena,
+                line[after_col..],
+            ) else try after_after_col.appendSlice(arena, " ");
 
             try spans.append(arena, .{ .text = before_before_col.items });
-            if (cursor.eql(before)) {
-                try spans.append(arena, .{ .text = at_cursor_col.items, .style = .{ .fg = c_mocha.base, .bg = c_mocha.rosewater } });
-                try spans.append(arena, .{ .text = before_col_to_after_col.items, .style = .{ .bg = c_mocha.surface_2 } });
-            } else {
-                try spans.append(arena, .{ .text = before_col_to_after_col.items, .style = .{ .bg = c_mocha.surface_2 } });
-                try spans.append(arena, .{ .text = at_cursor_col.items, .style = .{ .fg = c_mocha.base, .bg = c_mocha.rosewater } });
-            }
+            try spans.append(arena, .{
+                .text = before_col_to_after_col.items,
+                .style = .{ .bg = c_mocha.surface_2 },
+            });
             try spans.append(arena, .{ .text = after_after_col.items });
         } else {
             try spans.append(arena, .{
@@ -487,25 +478,28 @@ pub fn draw(self: *EditorWidget, ctx: vxfw.DrawContext) std.mem.Allocator.Error!
     const cursor = self.editor.getPrimarySelection().cursor;
     var cursor_state: ?vxfw.CursorState = null;
 
-    if (self.mode == .insert and cursor.row >= self.scroll_bars.scroll_view.scroll.top) {
+    if (cursor.row >= self.scroll_bars.scroll_view.scroll.top) {
         const line = self.editor.getLine(cursor.row);
-        const cursor_col = @min(cursor.col, line.len);
+        const cursor_col = if (std.mem.eql(u8, line, "\n") or std.mem.eql(u8, line, ""))
+            0
+        else if (cursor.row == self.editor.lineCount() -| 1 and !std.mem.endsWith(u8, line, "\n"))
+            @min(cursor.col, line.len)
+        else if (self.mode == .insert)
+            @min(cursor.col, line.len)
+        else
+            @min(cursor.col, line.len -| 1);
         const number_of_tabs_in_line = std.mem.count(
             u8,
-            line[0..cursor_col],
+            line[0..@min(cursor.col, line.len)],
             "\t",
         );
-
-        // Extra padding for the scroll view's cursor width, if it's going to be drawn.
-        const scroll_view_cursor_padding: u16 = if (self.scroll_bars.scroll_view.draw_cursor) 2 else 0;
 
         const screen_cursor_column =
             // Our representation of where in the line of text the cursor is.
             cursor_col -
             // Use the right width for all tab characters.
             number_of_tabs_in_line +
-            (TAB_REPLACEMENT.len * number_of_tabs_in_line) +
-            scroll_view_cursor_padding;
+            (TAB_REPLACEMENT.len * number_of_tabs_in_line);
 
         // We only show the cursor if it's actually visible.
         var row: u16 = @truncate(cursor.row);
@@ -515,7 +509,7 @@ pub fn draw(self: *EditorWidget, ctx: vxfw.DrawContext) std.mem.Allocator.Error!
         cursor_state = .{
             .row = row,
             .col = col,
-            .shape = .beam_blink,
+            .shape = if (self.mode == .insert) .beam_blink else .block,
         };
     }
 
