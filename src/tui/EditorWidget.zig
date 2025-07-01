@@ -384,46 +384,28 @@ pub fn updateLineWidgets(self: *EditorWidget) !void {
 
         // Add the correct styling for selections and cursors.
         if (line_nr == cursor.row) {
-            const line_to_before = @min(before.col, line.len);
-            const number_of_tabs_before_before = std.mem.count(
-                u8,
-                line[0..line_to_before],
-                "\t",
-            );
-            const screen_before_column =
-                // Our representation of where in the line of text the anchor is.
-                before.col -
-                // Use the right width for all tab characters.
-                number_of_tabs_before_before +
-                (TAB_REPLACEMENT.len * number_of_tabs_before_before);
-
-            const line_to_after = @min(after.col, line.len);
-            const number_of_tabs_before_after = std.mem.count(
-                u8,
-                line[0..line_to_after],
-                "\t",
-            );
-            const screen_after_column =
-                // Our representation of where in the line of text the cursor is.
-                after.col -
-                // Use the right width for all tab characters.
-                number_of_tabs_before_after +
-                (TAB_REPLACEMENT.len * number_of_tabs_before_after);
-
-            const before_col: u16 = @truncate(@min(screen_before_column, line.len));
-            const after_col: u16 = @truncate(@min(screen_after_column, line.len));
+            // FIXME: temporary check to make sure before and after are on the same line.
+            const before_col: u16 =
+                if (before.row != after.row)
+                    0
+                else
+                    @truncate(@min(before.col, line.len));
+            const after_col: u16 = @truncate(@min(after.col, line.len));
 
             var before_before_col: std.ArrayListUnmanaged(u8) = .empty;
             var before_col_to_after_col: std.ArrayListUnmanaged(u8) = .empty;
             var after_after_col: std.ArrayListUnmanaged(u8) = .empty;
 
-            if (before_col != 0) try before_before_col.appendSlice(arena, line[0..before_col]);
+            // FIXME: temporary check to make sure before and after are on the same line.
+            if (before_col <= after_col and before_col != 0) try before_before_col.appendSlice(arena, line[0..before_col]);
 
-            if (before_col != after_col) {
+            // FIXME: temporary check to make sure before and after are on the same line.
+            if (before_col <= after_col and before_col != after_col) {
                 try before_col_to_after_col.appendSlice(arena, line[before_col..after_col]);
             }
 
-            if (after_col < line.len) try after_after_col.appendSlice(
+            // FIXME: temporary check to make sure before and after are on the same line.
+            if (before_col <= after_col and after_col < line.len) try after_after_col.appendSlice(
                 arena,
                 line[after_col..],
             ) else try after_after_col.appendSlice(arena, " ");
