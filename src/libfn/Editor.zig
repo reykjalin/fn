@@ -108,7 +108,7 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
 
     // 2. Open the file for reading.
 
-    const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
+    const file = try std.fs.cwd().createFile(filename, .{ .read = true, .truncate = false });
     defer file.close();
 
     // 3. Get a reader to read the file.
@@ -139,9 +139,11 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
 }
 
 /// Saves the text to the current location based on the `filename` field.
-pub fn saveFile(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+pub fn saveFile(self: *Editor) !void {
+    const file = try std.fs.cwd().createFile(self.filename.items, .{});
+    defer file.close();
+
+    try file.writeAll(self.text.items);
 }
 
 pub fn copySelectionsContent(self: *const Editor) void {

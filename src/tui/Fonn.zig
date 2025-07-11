@@ -245,7 +245,7 @@ fn closeMenus(self: *Fonn) void {
 }
 
 fn saveFile(self: *Fonn) !void {
-    self.editor_widget.editor.saveFile();
+    try self.editor_widget.editor.saveFile();
 }
 
 fn typeErasedCaptureHandler(
