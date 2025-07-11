@@ -180,6 +180,11 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                             s.cursor.col -|= 1;
                         }
                         ctx.consumeAndRedraw();
+                    } else if (key.matches('d', .{})) {
+                        self.editor.copySelectionsContent();
+                        try self.editor.deleteSelections(self.gpa);
+                        self.mode = .normal;
+                        ctx.consumeAndRedraw();
                     }
                 },
                 .normal => {
@@ -203,7 +208,7 @@ pub fn handleEvent(self: *EditorWidget, ctx: *vxfw.EventContext, event: vxfw.Eve
                         ctx.consumeAndRedraw();
                     } else if (key.matches('d', .{})) {
                         self.editor.copySelectionsContent();
-                        try self.editor.deleteCharacterBeforeCursors(self.gpa);
+                        try self.editor.deleteSelections(self.gpa);
                         ctx.consumeAndRedraw();
                     } else if (key.matches('v', .{})) {
                         self.mode = .select;

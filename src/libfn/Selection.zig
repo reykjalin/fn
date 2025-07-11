@@ -117,6 +117,10 @@ pub fn lessThan(_: void, lhs: Selection, rhs: Selection) bool {
     return lhs.cursor.comesBefore(rhs.cursor);
 }
 
+pub fn lessThanPtr(_: void, lhs: *Selection, rhs: *Selection) bool {
+    return Selection.lessThan({}, lhs.*, rhs.*);
+}
+
 test merge {
     // 1. If one selection contains the other, just return the containing selection.
 

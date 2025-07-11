@@ -229,16 +229,15 @@ pub fn moveSelectionsLeft(self: *Editor) void {
 /// Moves each selection right one character. Selections will be collapsed to the cursor before
 /// they're moved.
 pub fn moveSelectionsRight(self: *Editor) void {
-    const num_lines = self.line_indexes.items.len -| 1;
     for (self.selections.items) |*s| {
         const line = self.getLine(s.cursor.row);
 
         s.cursor.col +|= 1;
 
-        if (s.cursor.col > line.len -| 1 and s.cursor.row < num_lines) {
+        if (s.cursor.col > line.len -| 1 and s.cursor.row < self.lineCount() -| 1) {
             s.cursor.row +|= 1;
             s.cursor.col = 0;
-        } else if (s.cursor.row == num_lines) {
+        } else if (s.cursor.row == self.lineCount() -| 1) {
             // We want to allow the cursor to appear as if there's a new line at the end of a file
             // so it can be moved beyond the end, so to speak.
             const max_col = if (std.mem.endsWith(u8, line, "\n")) line.len else line.len +| 1;
@@ -333,6 +332,83 @@ pub fn getLine(self: *const Editor, line: usize) []const u8 {
 /// Returns all the text in the current file. Caller owns the memory and must free.
 pub fn getAllTextOwned(self: *const Editor, allocator: Allocator) ![]const u8 {
     return try allocator.dupe(u8, self.text.items);
+}
+
+pub fn deleteSelections(self: *Editor, allocator: Allocator) !void {
+    if (self.text.items.len == 0) return;
+
+    var selections: std.ArrayListUnmanaged(*Selection) = .empty;
+    defer selections.deinit(allocator);
+    for (self.selections.items) |*s| {
+        try selections.append(allocator, s);
+    }
+
+    // The selections aren't guaranteed to be in order, so we sort them and make sure we delete
+    // from the back of the text first. That way we don't have to update all the cursors after each
+    // deletion.
+    std.mem.sort(*Selection, selections.items, {}, Selection.lessThanPtr);
+    std.mem.reverse(*Selection, selections.items);
+
+    var deleted_text: usize = 0;
+
+    for (selections.items) |s| {
+        const as_range = s.toRange();
+        const from = toIndexPos(self.text.items, as_range.before()).toInt();
+        const to = toIndexPos(self.text.items, as_range.after()).toInt();
+
+        if (s.isCursor()) {
+            const del_pos = if (from >= self.text.items.len) from -| 1 else from;
+            const deleted = self.text.orderedRemove(del_pos);
+
+            if (deleted == '\n') {
+                s.cursor.row -|= 1;
+                // FIXME: it's probably inefficient to update all the line indexes here? But if we
+                //        don't do it we can't use getLine() on the next line because the line
+                //        indexes will be out-of-date.
+                try self.updateLines(allocator);
+                s.cursor.col = self.getLine(s.cursor.row).len;
+                s.anchor = s.cursor;
+            } else if (del_pos > self.text.items.len) {
+                s.cursor = self.toPos(.fromInt(self.text.items.len));
+                s.anchor = s.cursor;
+            }
+
+            deleted_text += 1;
+        } else {
+            self.text.replaceRangeAssumeCapacity(from, to - from + 1, "");
+
+            s.cursor = self.toPos(.fromInt(from -| deleted_text));
+            s.anchor = s.cursor;
+
+            deleted_text += to - from;
+        }
+    }
+
+    // Need to update the line positions since they will have moved in most cases.
+    try self.updateLines(allocator);
+
+    // Need to re-tokenize.
+    try self.tokenize(allocator);
+
+    // Remove duplicate selections.
+    for (self.selections.items, 0..) |selection, i| {
+        const is_last_selection = i == self.selections.items.len - 1;
+        if (is_last_selection) break;
+
+        var j = i + 1;
+        while (j < self.selections.items.len) {
+            const other_selection = self.selections.items[j];
+            if (selection.eql(other_selection)) {
+                _ = self.selections.swapRemove(j);
+
+                // It's essential to `continue` here so we check `selection` against whichever
+                // selection has now moved to be at index `j`.
+                continue;
+            }
+
+            j += 1;
+        }
+    }
 }
 
 /// Deletes the character immediately before the cursor.
@@ -640,8 +716,8 @@ pub fn toIndexPos(text: []const u8, pos: Pos) IndexPos {
     std.debug.assert(pos.row < lines);
 
     if (pos.row == 0) {
-        std.debug.assert(pos.col <= text.len);
-        return .fromInt(pos.col);
+        const end_of_line = if (std.mem.indexOfScalar(u8, text, '\n')) |idx| idx + 1 else text.len;
+        return .fromInt(@min(pos.col, end_of_line));
     }
 
     var line: usize = 0;
@@ -651,8 +727,12 @@ pub fn toIndexPos(text: []const u8, pos: Pos) IndexPos {
             line += 1;
 
             if (line == pos.row) {
-                std.debug.assert(i + pos.col + 1 <= text.len);
-                return .fromInt(i + pos.col + 1);
+                const start_of_line = i + 1;
+                const end_of_line = if (std.mem.indexOfScalar(u8, text[start_of_line..], '\n')) |idx|
+                    idx + 1
+                else
+                    text[i..].len;
+                return .fromInt(start_of_line + @min(pos.col, end_of_line));
             }
         }
     }
