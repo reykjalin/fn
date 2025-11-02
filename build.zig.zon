@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.15.1",
     .dependencies = .{
         .log_to_file = .{
-            .url = "git+https://github.com/reykjalin/log_to_file#22202c2ef59d2b9b7bd33c7314633e356d797c9c",
-            .hash = "log_to_file-3.0.0-vcE8A7NAAABOSGdksdNfqTJ9Z6C23zDargQ9Z49WFuXV",
+            .url = "https://git.sr.ht/~reykjalin/log_to_file/archive/3.0.0.tar.gz",
+            .hash = "log_to_file-3.0.0-vcE8A7FAAACoRP9IxaWcrHhv-uK2Uoqu_Uw8gdVH71Cq",
         },
         .vaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis#cfa6311448755cf18684c09697d20b7a7622e578",
