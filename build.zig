@@ -15,8 +15,6 @@ pub fn build(b: *std.Build) void {
     // Tests.
     const libfn_unit_tests = b.addTest(.{
         .root_module = libfn,
-        .target = target,
-        .optimize = optimize,
     });
     const run_libfn_unit_tests = b.addRunArtifact(libfn_unit_tests);
     const test_step = b.step("test", "Run unit tests");

@@ -2,15 +2,15 @@
     .name = .libfn,
     .fingerprint = 0xe304ae87c91c388,
     .version = "0.0.1",
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{
         .log_to_file = .{
-            .url = "git+https://git.sr.ht/~reykjalin/log_to_file?ref=2.1.0#add71ed5dcd94ca10d70477a869c552ed760d4e8",
-            .hash = "log_to_file-2.1.0-vcE8Az8_AAB4FGmTuYb00TRPKdsoBP5bF7W8o6vYe51p",
+            .url = "git+https://github.com/reykjalin/log_to_file#22202c2ef59d2b9b7bd33c7314633e356d797c9c",
+            .hash = "log_to_file-3.0.0-vcE8A7NAAABOSGdksdNfqTJ9Z6C23zDargQ9Z49WFuXV",
         },
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis#84d6cb381c0d628550fac3f6daa24c5faf7b2cd1",
-            .hash = "vaxis-0.1.0-BWNV_O8OCQBC4w-MnOGaKw9zFVFgTxf3XfcvgScUagEJ",
+            .url = "git+https://github.com/rockorager/libvaxis#cfa6311448755cf18684c09697d20b7a7622e578",
+            .hash = "vaxis-0.5.1-BWNV_IcuCQCjrYTHNe3-ArhtpwLzRfgI2mBu0yKT7IZl",
         },
     },
     .paths = .{

@@ -38,7 +38,9 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args);
 
     if (args.len > 1 and (std.mem.eql(u8, args[1], "--help") or std.mem.eql(u8, args[1], "-h"))) {
-        const writer = std.io.getStdOut().writer();
+        var buffer: [1024]u8 = undefined;
+        var stdout = std.fs.File.stdout().writer(&buffer);
+        const writer = &stdout.interface;
         try writer.print("Usage: fn [file]\n", .{});
         try writer.print("\n", .{});
         try writer.print("General options:\n", .{});
@@ -50,7 +52,9 @@ pub fn main() !void {
     if (args.len > 1 and
         (std.mem.eql(u8, args[1], "--version") or std.mem.eql(u8, args[1], "-v")))
     {
-        const writer = std.io.getStdOut().writer();
+        var buffer: [1024]u8 = undefined;
+        var stdout = std.fs.File.stdout().writer(&buffer);
+        const writer = &stdout.interface;
         try writer.print("0.0.0\n", .{});
         std.process.exit(0);
     }

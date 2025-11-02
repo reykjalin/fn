@@ -113,12 +113,13 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
 
     // 3. Get a reader to read the file.
 
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const reader = buf_reader.reader();
+    var buffer: [1024]u8 = undefined;
+    var file_reader = file.reader(&buffer);
+    var reader = &file_reader.interface;
 
     // 4. Read the file and store in state.
 
-    const contents = try reader.readAllAlloc(allocator, std.math.maxInt(usize));
+    const contents = try reader.readAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(contents);
 
     self.text.clearRetainingCapacity();
