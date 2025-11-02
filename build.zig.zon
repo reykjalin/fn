@@ -12,6 +12,10 @@
             .url = "git+https://github.com/rockorager/libvaxis#cfa6311448755cf18684c09697d20b7a7622e578",
             .hash = "vaxis-0.5.1-BWNV_IcuCQCjrYTHNe3-ArhtpwLzRfgI2mBu0yKT7IZl",
         },
+        .vxim = .{
+            .url = "git+https://tangled.org/@reykjalin.org/vxim#8fda8418a2368b61dbcd1d992bf9bf44e15be391",
+            .hash = "vxim-0.0.0-TaTdBYOaAABEL4GIB9iT3AT7D-qw4cWq-cGPSWJFTRNo",
+        },
     },
     .paths = .{
         "src/libfn",

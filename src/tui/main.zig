@@ -1,5 +1,6 @@
 const std = @import("std");
-const vaxis = @import("vaxis");
+const vxim = @import("vxim");
+const vaxis = vxim.vaxis;
 const vxfw = vaxis.vxfw;
 const builtin = @import("builtin");
 const ltf = @import("log_to_file");

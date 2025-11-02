@@ -1,4 +1,4 @@
-const vaxis = @import("vaxis");
+const vaxis = @import("vxim").vaxis;
 
 pub const rosewater: vaxis.Cell.Color = .{ .rgb = .{ 245, 224, 220 } };
 pub const flamingo: vaxis.Cell.Color = .{ .rgb = .{ 242, 205, 205 } };

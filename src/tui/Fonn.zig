@@ -1,5 +1,5 @@
 const std = @import("std");
-const vaxis = @import("vaxis");
+const vaxis = @import("vxim").vaxis;
 const vxfw = vaxis.vxfw;
 
 const EditorWidget = @import("./EditorWidget.zig");

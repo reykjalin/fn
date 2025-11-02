@@ -39,10 +39,10 @@ pub fn build(b: *std.Build) void {
     docs.dependOn(&install_docs.step);
 
     // Start of TUI declaration.
-    const vaxis = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
+    const vxim = b.lazyDependency("vxim", .{ .target = target, .optimize = optimize });
     const ltf = b.lazyDependency("log_to_file", .{ .target = target, .optimize = optimize });
 
-    if (vaxis) |vaxis_dep| {
+    if (vxim) |vxim_dep| {
         if (ltf) |ltf_dep| {
             const exe_mod = b.createModule(.{
                 .root_source_file = b.path("src/tui/main.zig"),
@@ -50,7 +50,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             });
 
-            exe_mod.addImport("vaxis", vaxis_dep.module("vaxis"));
+            exe_mod.addImport("vxim", vxim_dep.module("vxim"));
             exe_mod.addImport("log_to_file", ltf_dep.module("log_to_file"));
             exe_mod.addImport("libfn", libfn);
 
