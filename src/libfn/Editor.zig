@@ -93,7 +93,7 @@ pub fn deinit(self: *Editor, allocator: Allocator) void {
 }
 
 /// Opens the file provided and loads the contents of the file into the content buffer. `filename`
-/// must be a file pathk relative to the current working directory or an absolute path.
+/// must be a file path relative to the current working directory or an absolute path.
 /// TODO: handle errors in a way that this can return `void` or maybe some `result` type.
 pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void {
     // 1. Open a scratch buffer if no file name is provided.
@@ -119,11 +119,15 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
 
     // 4. Read the file and store in state.
 
-    const contents = try reader.readAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(contents);
+    self.text.clearAndFree(allocator);
 
-    self.text.clearRetainingCapacity();
-    try self.text.appendSlice(allocator, contents);
+    var writer: std.Io.Writer.Allocating = .fromArrayList(allocator, &self.text);
+    defer writer.deinit();
+
+    // Stream from file to the text array list.
+    _ = try reader.stream(&writer.writer, .unlimited);
+    try writer.writer.flush();
+    self.text = writer.toArrayList();
 
     // 5. Only after the file has been successfully read do we update file name and other state.
 
@@ -144,7 +148,11 @@ pub fn saveFile(self: *Editor) !void {
     const file = try std.fs.cwd().createFile(self.filename.items, .{});
     defer file.close();
 
-    try file.writeAll(self.text.items);
+    var buffer: [1024]u8 = undefined;
+    var writer = file.writer(&buffer);
+
+    try writer.interface.writeAll(self.text.items);
+    try writer.interface.flush();
 }
 
 pub fn copySelectionsContent(self: *const Editor) void {

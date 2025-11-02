@@ -4,11 +4,27 @@ const vaxis = vxim.vaxis;
 const vxfw = vaxis.vxfw;
 const builtin = @import("builtin");
 const ltf = @import("log_to_file");
-
-const Fonn = @import("./Fonn.zig");
-const mb = @import("./menu_bar.zig");
+const libfn = @import("libfn");
 
 const c_mocha = @import("./themes/catppuccin-mocha.zig");
+
+const Mode = enum {
+    normal,
+    insert,
+};
+
+const Event = union(enum) {
+    key_press: vaxis.Key,
+    winsize: vaxis.Winsize,
+    mouse: vaxis.Mouse,
+    mouse_focus: vaxis.Mouse,
+};
+
+const Widget = enum {
+    editor,
+};
+
+const Vxim = vxim.Vxim(Event, Widget);
 
 // Set some scope levels for the vaxis log scopes and log to file in debug mode.
 pub const std_options: std.Options = if (builtin.mode == .Debug) .{
@@ -23,8 +39,17 @@ pub const std_options: std.Options = if (builtin.mode == .Debug) .{
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
+const State = struct {
+    gpa: std.mem.Allocator,
+    editor: libfn.Editor,
+    v_scroll: usize = 0,
+    h_scroll: usize = 0,
+    mode: Mode = .normal,
+};
+var state: State = .{ .gpa = undefined, .editor = undefined };
+
 pub fn main() !void {
-    var gpa, const is_debug = gpa: {
+    const gpa, const is_debug = gpa: {
         break :gpa switch (builtin.mode) {
             .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
             .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
@@ -48,7 +73,8 @@ pub fn main() !void {
         try writer.print("\n", .{});
         try writer.print("  -h, --help     Print fn help\n", .{});
         try writer.print("  -v, --version  Print fn version\n", .{});
-        std.process.exit(0);
+        try writer.flush();
+        return;
     }
     if (args.len > 1 and
         (std.mem.eql(u8, args[1], "--version") or std.mem.eql(u8, args[1], "-v")))
@@ -57,36 +83,144 @@ pub fn main() !void {
         var stdout = std.fs.File.stdout().writer(&buffer);
         const writer = &stdout.interface;
         try writer.print("0.0.0\n", .{});
-        std.process.exit(0);
+        try writer.flush();
+        return;
     }
 
-    // Initialize vaxis app.
-    var app = try vxfw.App.init(gpa);
-    errdefer app.deinit();
+    state.gpa = gpa;
+    state.editor = try .init(state.gpa);
+    defer state.editor.deinit(state.gpa);
 
-    // Initialize Fönn.
-    const fonn: *Fonn = try .init(gpa);
-    defer gpa.destroy(fonn);
-
-    // If we have more than 1 argument, use the last argument as the file to open.
     if (args.len > 1) {
-        const file_path = args[args.len - 1];
-        try fonn.editor_widget.editor.openFile(gpa, file_path);
-    } else {
-        // Load an empty file just to initialize the lines correctly.
-        try fonn.editor_widget.editor.openFile(gpa, "");
+        try state.editor.openFile(state.gpa, args[1]);
     }
 
-    // Prepare the widgets used to draw the text on the first render.
-    // FIXME: there might be a better way to do this? Or at least a better time to do this.
-    try fonn.editor_widget.updateLineWidgets();
+    var app: Vxim = .init(gpa);
+    defer app.deinit(gpa);
 
-    // Free fn state.
-    defer fonn.deinit();
+    try app.enterAltScreen();
+    try app.setMouseMode(true);
 
-    // Run app.
-    try app.run(fonn.widget(), .{});
-    app.deinit();
+    app._vx.window().showCursor(0, 0);
+
+    try app.startLoop(gpa, update);
+}
+
+pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
+    switch (ctx.current_event) {
+        .key_press => |key| if (key.matches('c', .{ .ctrl = true })) return .stop,
+        else => {},
+    }
+
+    ctx.root_win.clear();
+
+    const widest_line = widest_line: {
+        var max_width: usize = 0;
+
+        for (0..state.editor.lineCount()) |idx| {
+            const line = state.editor.getLine(idx);
+            max_width = @max(max_width, line.len);
+        }
+
+        break :widest_line max_width;
+    };
+
+    const scroll_body = ctx.vxim.scrollArea(.editor, ctx.root_win, .{
+        .content_height = state.editor.lineCount(),
+        .content_width = widest_line,
+        .v_content_offset = &state.v_scroll,
+        .h_content_offset = &state.h_scroll,
+    });
+
+    try editor(ctx, scroll_body);
+
+    switch (state.mode) {
+        .insert => ctx.root_win.setCursorShape(.beam_blink),
+        .normal => ctx.root_win.setCursorShape(.block),
+    }
+
+    return .keep_going;
+}
+
+fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
+    std.debug.assert(state.v_scroll < state.editor.lineCount());
+
+    switch (ctx.current_event) {
+        .key_press => |key| {
+            if (state.mode == .normal) {
+                if (key.matches('i', .{})) state.mode = .insert;
+
+                if (key.matches('h', .{})) state.editor.moveSelectionsLeft();
+                if (key.matches(vaxis.Key.left, .{})) state.editor.moveSelectionsLeft();
+                if (key.matches('j', .{})) state.editor.moveSelectionsDown();
+                if (key.matches(vaxis.Key.down, .{})) state.editor.moveSelectionsDown();
+                if (key.matches('k', .{})) state.editor.moveSelectionsUp();
+                if (key.matches(vaxis.Key.up, .{})) state.editor.moveSelectionsUp();
+                if (key.matches('l', .{})) state.editor.moveSelectionsRight();
+                if (key.matches(vaxis.Key.right, .{})) state.editor.moveSelectionsRight();
+            } else if (state.mode == .insert) {
+                if (key.matches(vaxis.Key.enter, .{})) try state.editor.insertTextAtCursors(state.gpa, "\n");
+                if (key.matches(vaxis.Key.tab, .{})) try state.editor.insertTextAtCursors(state.gpa, "    ");
+                if (key.matches(vaxis.Key.backspace, .{})) try state.editor.deleteCharacterBeforeCursors(state.gpa);
+                if (key.matches(vaxis.Key.escape, .{})) state.mode = .normal;
+
+                if (key.matches(vaxis.Key.left, .{})) state.editor.moveSelectionsLeft();
+                if (key.matches(vaxis.Key.down, .{})) state.editor.moveSelectionsDown();
+                if (key.matches(vaxis.Key.up, .{})) state.editor.moveSelectionsUp();
+                if (key.matches(vaxis.Key.right, .{})) state.editor.moveSelectionsRight();
+
+                if (key.text) |text| {
+                    try state.editor.insertTextAtCursors(state.gpa, text);
+                }
+            }
+
+            if (key.matches('s', .{ .super = true })) try state.editor.saveFile();
+        },
+        .mouse => |mouse| if (container.hasMouse(mouse)) |_| {
+            if (mouse.button == .left and mouse.type == .press) {
+                const clicked_line = mouse.row +| state.v_scroll;
+                const clicked_col = mouse.col +| state.h_scroll;
+
+                const row = @min(clicked_line, state.editor.lineCount() -| 1);
+                const line = state.editor.getLine(row);
+                const col = @min(clicked_col, line.len -| 1);
+
+                state.editor.selections.clearRetainingCapacity();
+                try state.editor.appendSelection(
+                    state.gpa,
+                    .createCursor(.{ .row = row, .col = col }),
+                );
+            }
+        },
+        else => {},
+    }
+
+    for (state.v_scroll..state.editor.lineCount()) |idx| {
+        const line = state.editor.getLine(idx);
+
+        if (state.h_scroll > line.len -| 1) continue;
+
+        _ = container.printSegment(
+            .{ .text = line[state.h_scroll..] },
+            .{ .row_offset = @intCast(idx -| state.v_scroll), .wrap = .none },
+        );
+    }
+
+    const selection = state.editor.getPrimarySelection();
+
+    const is_selection_row_visible = selection.cursor.row >= state.v_scroll and
+        selection.cursor.row < state.v_scroll + container.height;
+    const is_selection_col_visible = selection.cursor.col >= state.h_scroll and
+        selection.cursor.col < state.h_scroll + container.width;
+
+    if (is_selection_row_visible and is_selection_col_visible) {
+        const cursor_line = state.editor.getLine(selection.cursor.row);
+        const normalized_row = selection.cursor.row -| state.v_scroll;
+        const normalized_col = @min(cursor_line.len, selection.cursor.col -| state.h_scroll);
+        container.showCursor(@intCast(normalized_col), @intCast(normalized_row));
+    } else {
+        container.hideCursor();
+    }
 }
 
 test "refAllDecls" {
