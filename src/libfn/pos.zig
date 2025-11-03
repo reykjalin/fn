@@ -33,6 +33,15 @@ pub fn lessThan(_: void, lhs: Pos, rhs: Pos) bool {
     return lhs.comesBefore(rhs);
 }
 
+pub fn getVisualColumnForText(self: Pos, text: []const u8) usize {
+    const text_len = len: {
+        if (std.mem.endsWith(u8, text, "\n")) break :len text.len -| 1;
+        break :len text.len;
+    };
+
+    return @min(self.col, text_len);
+}
+
 test eql {
     const a: Pos = .{ .row = 0, .col = 3 };
     const b: Pos = .{ .row = 0, .col = 3 };
@@ -89,6 +98,19 @@ test comesAfter {
 
     try std.testing.expect(!d.comesAfter(c));
     try std.testing.expect(c.comesAfter(d));
+}
+
+test getVisualColumnForText {
+    const pos: Pos = .{ .row = 0, .col = 3 };
+
+    try std.testing.expect(pos.getVisualColumnForText("0123") == 3);
+    try std.testing.expect(pos.getVisualColumnForText("012") == 3);
+    try std.testing.expect(pos.getVisualColumnForText("012\n") == 3);
+
+    try std.testing.expect(pos.getVisualColumnForText("") == 0);
+    try std.testing.expect(pos.getVisualColumnForText("\n") == 0);
+    try std.testing.expect(pos.getVisualColumnForText("0\n") == 1);
+    try std.testing.expect(pos.getVisualColumnForText("01\n") == 2);
 }
 
 test "refAllDecls" {

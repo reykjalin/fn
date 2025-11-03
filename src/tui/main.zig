@@ -22,6 +22,7 @@ const Event = union(enum) {
 
 const Widget = enum {
     editor,
+    dbg,
 };
 
 const Vxim = vxim.Vxim(Event, Widget);
@@ -108,35 +109,67 @@ pub fn main() !void {
 
 pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
     switch (ctx.current_event) {
-        .key_press => |key| if (key.matches('c', .{ .ctrl = true })) return .stop,
+        .key_press => |key| if (state.mode == .normal and key.matches('c', .{ .ctrl = true }))
+            return .stop,
         else => {},
     }
 
     ctx.root_win.clear();
 
-    const widest_line = widest_line: {
-        var max_width: usize = 0;
+    // Draw editor.
+    {
+        const widest_line = widest_line: {
+            var max_width: usize = 0;
 
-        for (0..state.editor.lineCount()) |idx| {
-            const line = state.editor.getLine(idx);
-            max_width = @max(max_width, line.len);
+            for (0..state.editor.lineCount()) |idx| {
+                const line = state.editor.getLine(idx);
+                max_width = @max(max_width, line.len);
+            }
+
+            break :widest_line max_width;
+        };
+
+        const scroll_body = ctx.vxim.scrollArea(.editor, ctx.root_win, .{
+            .content_height = state.editor.lineCount(),
+            .content_width = widest_line,
+            .v_content_offset = &state.v_scroll,
+            .h_content_offset = &state.h_scroll,
+        });
+
+        try editor(ctx, scroll_body);
+    }
+
+    // Draw debug info.
+    if (builtin.mode == .Debug) {
+        const sel = state.editor.getPrimarySelection();
+        const cursor_info = try std.fmt.allocPrint(ctx.vxim.arena(), "Cursor: {}", .{
+            sel.cursor,
+        });
+
+        const line_count = try std.fmt.allocPrint(ctx.vxim.arena(), "lines: {d}", .{state.editor.lineCount()});
+
+        const dbg_width = @max(
+            cursor_info.len +| 2,
+            line_count.len,
+        );
+        var dbg_pos: struct { x: u16, y: u16 } = .{ .x = @intCast(ctx.root_win.width -| dbg_width -| 2), .y = 8 };
+        const dbg_info = ctx.vxim.window(.dbg, ctx.root_win, .{
+            .x = &dbg_pos.x,
+            .y = &dbg_pos.y,
+            .width = @intCast(dbg_width),
+            .height = 4,
+        });
+
+        ctx.vxim.text(dbg_info, .{ .text = cursor_info });
+        ctx.vxim.text(dbg_info, .{ .text = line_count, .y = 1 });
+    }
+
+    // Update cursor shape.
+    {
+        switch (state.mode) {
+            .insert => ctx.root_win.setCursorShape(.beam_blink),
+            .normal => ctx.root_win.setCursorShape(.block),
         }
-
-        break :widest_line max_width;
-    };
-
-    const scroll_body = ctx.vxim.scrollArea(.editor, ctx.root_win, .{
-        .content_height = state.editor.lineCount(),
-        .content_width = widest_line,
-        .v_content_offset = &state.v_scroll,
-        .h_content_offset = &state.h_scroll,
-    });
-
-    try editor(ctx, scroll_body);
-
-    switch (state.mode) {
-        .insert => ctx.root_win.setCursorShape(.beam_blink),
-        .normal => ctx.root_win.setCursorShape(.block),
     }
 
     return .keep_going;
@@ -169,6 +202,8 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 if (key.matches(vaxis.Key.up, .{})) state.editor.moveSelectionsUp();
                 if (key.matches(vaxis.Key.right, .{})) state.editor.moveSelectionsRight();
 
+                if (key.matches('c', .{ .ctrl = true })) state.mode = .normal;
+
                 if (key.text) |text| {
                     try state.editor.insertTextAtCursors(state.gpa, text);
                 }
@@ -183,7 +218,17 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
 
                 const row = @min(clicked_line, state.editor.lineCount() -| 1);
                 const line = state.editor.getLine(row);
-                const col = @min(clicked_col, line.len -| 1);
+
+                const line_with_h_scroll = if (state.h_scroll > line.len) "" else line[state.h_scroll..];
+                const visual_line_len = if (std.mem.endsWith(u8, line_with_h_scroll, "\n"))
+                    line_with_h_scroll.len -| 1
+                else
+                    line_with_h_scroll.len;
+
+                const col = @min(
+                    clicked_col,
+                    visual_line_len,
+                );
 
                 state.editor.selections.clearRetainingCapacity();
                 try state.editor.appendSelection(
@@ -216,7 +261,10 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
     if (is_selection_row_visible and is_selection_col_visible) {
         const cursor_line = state.editor.getLine(selection.cursor.row);
         const normalized_row = selection.cursor.row -| state.v_scroll;
-        const normalized_col = @min(cursor_line.len, selection.cursor.col -| state.h_scroll);
+
+        const line_with_h_scroll = if (state.h_scroll > cursor_line.len) "" else cursor_line[state.h_scroll..];
+        const normalized_col = selection.cursor.getVisualColumnForText(line_with_h_scroll);
+
         container.showCursor(@intCast(normalized_col), @intCast(normalized_row));
     } else {
         container.hideCursor();

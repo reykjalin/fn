@@ -577,6 +577,23 @@ pub fn lineCount(self: *const Editor) usize {
 /// text.
 pub fn insertTextAtCursors(self: *Editor, allocator: Allocator, text: []const u8) !void {
     for (self.selections.items) |*s| {
+        std.debug.assert(s.cursor.row <= self.lineCount());
+
+        // Since we're inserting we want to clamp the cursor to the line length.
+        const cursor_line = cursor_line: {
+            const line = self.getLine(s.cursor.row);
+
+            if (std.mem.endsWith(u8, line, "\n")) break :cursor_line line[0..line.len -| 1];
+            break :cursor_line line;
+        };
+        const new_col = @min(cursor_line.len, s.cursor.col);
+        if (s.isCursor()) {
+            s.cursor.col = new_col;
+            s.anchor = s.cursor;
+        } else {
+            s.cursor.col = new_col;
+        }
+
         const cursor = toIndexPos(self.text.items, s.cursor);
 
         // Insert text.
@@ -975,6 +992,39 @@ test insertTextAtCursors {
     try std.testing.expectEqualSlices(
         Selection,
         &.{.createCursor(.{ .row = 6, .col = 0 })},
+        editor.selections.items,
+    );
+
+    // Reset.
+    editor.deinit(talloc);
+    editor = try .init(talloc);
+
+    // 5. Virtual columns clamped correctly to the end of the line.
+
+    try editor.text.appendSlice(talloc, "123\n456\n789\n");
+    try editor.updateLines(talloc);
+
+    editor.selections.clearRetainingCapacity();
+    try editor.appendSelection(talloc, .createCursor(.{ .row = 0, .col = 5 }));
+
+    try editor.insertTextAtCursors(talloc, "abc");
+
+    try std.testing.expectEqualStrings("123abc\n456\n789\n", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.createCursor(.{ .row = 0, .col = 6 })},
+        editor.selections.items,
+    );
+
+    editor.selections.clearRetainingCapacity();
+    try editor.appendSelection(talloc, .createCursor(.{ .row = 3, .col = 5 }));
+
+    try editor.insertTextAtCursors(talloc, "abc");
+
+    try std.testing.expectEqualStrings("123abc\n456\n789\nabc", editor.text.items);
+    try std.testing.expectEqualSlices(
+        Selection,
+        &.{.createCursor(.{ .row = 3, .col = 3 })},
         editor.selections.items,
     );
 }
