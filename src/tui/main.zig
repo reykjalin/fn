@@ -23,6 +23,9 @@ const Event = union(enum) {
 const Widget = enum {
     editor,
     dbg,
+    file_menu,
+    file_menu_save,
+    file_menu_quit,
 };
 
 const Vxim = vxim.Vxim(Event, Widget);
@@ -119,6 +122,8 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
     // Draw editor.
     {
         const scroll_body = ctx.vxim.scrollArea(.editor, ctx.root_win, .{
+            .y = 1,
+            .height = ctx.root_win.height -| 1,
             .content_height = state.editor.lineCount(),
             .content_width = state.editor.longest_line,
             .v_content_offset = &state.v_scroll,
@@ -126,6 +131,52 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
         });
 
         try editor(ctx, scroll_body);
+
+        // Update cursor visibility.
+        draw_cursors: {
+            if (ctx.vxim.open_menu == .file_menu) {
+                scroll_body.hideCursor();
+                break :draw_cursors;
+            }
+
+            const selection = state.editor.getPrimarySelection();
+
+            const is_selection_row_visible = selection.cursor.row >= state.v_scroll and
+                selection.cursor.row < state.v_scroll + scroll_body.height;
+            const is_selection_col_visible = selection.cursor.col >= state.h_scroll and
+                selection.cursor.col < state.h_scroll + scroll_body.width;
+
+            if (is_selection_row_visible and is_selection_col_visible) {
+                const cursor_line = state.editor.getLine(selection.cursor.row);
+                const normalized_row = selection.cursor.row -| state.v_scroll;
+
+                const line_with_h_scroll = if (state.h_scroll > cursor_line.len) "" else cursor_line[state.h_scroll..];
+                const normalized_col = selection.cursor.getVisualColumnForText(line_with_h_scroll);
+
+                scroll_body.showCursor(@intCast(normalized_col), @intCast(normalized_row));
+            } else {
+                scroll_body.hideCursor();
+            }
+        }
+    }
+
+    // Draw menubar.
+    {
+        const menu_bar_action = ctx.vxim.menuBar(ctx.root_win, &.{
+            .{
+                .name = "File",
+                .id = .file_menu,
+                .items = &.{
+                    .{ .name = "Save", .id = .file_menu_save },
+                    .{ .name = "Quit", .id = .file_menu_quit },
+                },
+            },
+        });
+
+        if (menu_bar_action) |a| {
+            if (a.id == .file_menu_save and a.action == .clicked) try state.editor.saveFile();
+            if (a.id == .file_menu_quit and a.action == .clicked) return .stop;
+        }
     }
 
     // Draw debug info.
@@ -136,7 +187,6 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
         });
 
         const line_count = try std.fmt.allocPrint(ctx.vxim.arena(), "lines: {d}", .{state.editor.lineCount()});
-
         const longest_line = try std.fmt.allocPrint(ctx.vxim.arena(), "longest line: {d}", .{state.editor.longest_line});
 
         const dbg_width = @max(
@@ -242,25 +292,6 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
             .{ .text = line[state.h_scroll..] },
             .{ .row_offset = @intCast(idx -| state.v_scroll), .wrap = .none },
         );
-    }
-
-    const selection = state.editor.getPrimarySelection();
-
-    const is_selection_row_visible = selection.cursor.row >= state.v_scroll and
-        selection.cursor.row < state.v_scroll + container.height;
-    const is_selection_col_visible = selection.cursor.col >= state.h_scroll and
-        selection.cursor.col < state.h_scroll + container.width;
-
-    if (is_selection_row_visible and is_selection_col_visible) {
-        const cursor_line = state.editor.getLine(selection.cursor.row);
-        const normalized_row = selection.cursor.row -| state.v_scroll;
-
-        const line_with_h_scroll = if (state.h_scroll > cursor_line.len) "" else cursor_line[state.h_scroll..];
-        const normalized_col = selection.cursor.getVisualColumnForText(line_with_h_scroll);
-
-        container.showCursor(@intCast(normalized_col), @intCast(normalized_row));
-    } else {
-        container.hideCursor();
     }
 }
 
