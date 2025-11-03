@@ -40,6 +40,9 @@ text: std.ArrayListUnmanaged(u8),
 /// The start position of each line in the content buffer using a byte-position. **Modifying this
 /// will cause undefined behavior**. This will automatically be kept up to date by helper methods.
 line_indexes: std.ArrayListUnmanaged(IndexPos),
+/// This is the length of the longest line at any given moment. This will automatically be kept up
+/// to date by helper methods. **Modifying this may cause undefined behavior**.
+longest_line: usize,
 /// An array of tokens in the text. The text will be tokenized every time it changes. **Modifying
 /// this will cause undefined behavior**. The default tokenization has the whole text set to a
 /// simple `Text` type.
@@ -78,6 +81,7 @@ pub fn init(allocator: Allocator) !Editor {
     return .{
         .filename = .empty,
         .line_indexes = lines,
+        .longest_line = 0,
         .selections = selections,
         .text = .empty,
         .tokens = tokens,
@@ -701,6 +705,24 @@ fn updateLines(self: *Editor, allocator: Allocator) !void {
     for (self.text.items, 1..) |char, i| {
         if (char == '\n') try self.line_indexes.append(allocator, .fromInt(i));
     }
+
+    self.longest_line = longest_line: {
+        if (self.line_indexes.items.len == 1) break :longest_line self.text.items.len;
+
+        var max: usize = 0;
+        var prev_line_idx: usize = 0;
+
+        for (1..self.line_indexes.items.len) |idx| {
+            defer prev_line_idx = idx;
+
+            const prev_idx = self.line_indexes.items[prev_line_idx].toInt();
+            const curr_idx = self.line_indexes.items[idx].toInt();
+
+            max = @max(max, curr_idx - prev_idx);
+        }
+
+        break :longest_line max;
+    };
 }
 
 /// Converts the provided `Pos` object to a `CoordinatePos`.

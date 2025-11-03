@@ -118,20 +118,9 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
 
     // Draw editor.
     {
-        const widest_line = widest_line: {
-            var max_width: usize = 0;
-
-            for (0..state.editor.lineCount()) |idx| {
-                const line = state.editor.getLine(idx);
-                max_width = @max(max_width, line.len);
-            }
-
-            break :widest_line max_width;
-        };
-
         const scroll_body = ctx.vxim.scrollArea(.editor, ctx.root_win, .{
             .content_height = state.editor.lineCount(),
-            .content_width = widest_line,
+            .content_width = state.editor.longest_line,
             .v_content_offset = &state.v_scroll,
             .h_content_offset = &state.h_scroll,
         });
@@ -148,20 +137,24 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
 
         const line_count = try std.fmt.allocPrint(ctx.vxim.arena(), "lines: {d}", .{state.editor.lineCount()});
 
+        const longest_line = try std.fmt.allocPrint(ctx.vxim.arena(), "longest line: {d}", .{state.editor.longest_line});
+
         const dbg_width = @max(
             cursor_info.len +| 2,
             line_count.len,
+            longest_line.len,
         );
         var dbg_pos: struct { x: u16, y: u16 } = .{ .x = @intCast(ctx.root_win.width -| dbg_width -| 2), .y = 8 };
         const dbg_info = ctx.vxim.window(.dbg, ctx.root_win, .{
             .x = &dbg_pos.x,
             .y = &dbg_pos.y,
             .width = @intCast(dbg_width),
-            .height = 4,
+            .height = 5,
         });
 
         ctx.vxim.text(dbg_info, .{ .text = cursor_info });
         ctx.vxim.text(dbg_info, .{ .text = line_count, .y = 1 });
+        ctx.vxim.text(dbg_info, .{ .text = longest_line, .y = 2 });
     }
 
     // Update cursor shape.
