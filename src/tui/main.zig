@@ -174,7 +174,7 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
         });
 
         if (menu_bar_action) |a| {
-            if (a.id == .file_menu_save and a.action == .clicked) try state.editor.saveFile();
+            if (a.id == .file_menu_save and a.action == .clicked) try state.editor.saveFile(state.gpa);
             if (a.id == .file_menu_quit and a.action == .clicked) return .stop;
         }
     }
@@ -252,7 +252,7 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 }
             }
 
-            if (key.matches('s', .{ .super = true })) try state.editor.saveFile();
+            if (key.matches('s', .{ .super = true })) try state.editor.saveFile(state.gpa);
         },
         .mouse => |mouse| if (container.hasMouse(mouse)) |_| {
             if (mouse.button == .left and mouse.type == .press) {

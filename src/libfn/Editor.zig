@@ -8,6 +8,8 @@ const Pos = @import("pos.zig");
 const IndexPos = @import("indexpos.zig").IndexPos;
 const Range = @import("Range.zig");
 const Selection = @import("Selection.zig");
+const Language = @import("Language.zig");
+const Zig = @import("languages/Zig.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -50,6 +52,8 @@ tokens: std.ArrayListUnmanaged(Token),
 /// An array tracking all of the selections in the editor. **Modifying this will cause undefined
 /// behavior**. Use the methods on the editor to manipulate the selections instead.
 selections: std.ArrayListUnmanaged(Selection),
+/// Adds language support features when present.
+language: ?Language = null,
 
 pub const Command = union(enum) {
     /// Adds a new cursor at the given position.
@@ -115,23 +119,25 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
     const file = try std.fs.cwd().createFile(filename, .{ .read = true, .truncate = false });
     defer file.close();
 
-    // 3. Get a reader to read the file.
-
-    var buffer: [1024]u8 = undefined;
-    var file_reader = file.reader(&buffer);
-    var reader = &file_reader.interface;
-
-    // 4. Read the file and store in state.
-
     self.text.clearAndFree(allocator);
 
-    var writer: std.Io.Writer.Allocating = .fromArrayList(allocator, &self.text);
-    defer writer.deinit();
+    if (try file.getEndPos() > 0) {
+        // 3. Get a reader to read the file.
 
-    // Stream from file to the text array list.
-    _ = try reader.stream(&writer.writer, .unlimited);
-    try writer.writer.flush();
-    self.text = writer.toArrayList();
+        var buffer: [1024]u8 = undefined;
+        var file_reader = file.reader(&buffer);
+        var reader = &file_reader.interface;
+
+        // 4. Read the file and store in state.
+
+        var writer: std.Io.Writer.Allocating = .fromArrayList(allocator, &self.text);
+        defer writer.deinit();
+
+        // Stream from file to the text array list.
+        _ = try reader.stream(&writer.writer, .unlimited);
+        try writer.writer.flush();
+        self.text = writer.toArrayList();
+    }
 
     // 5. Only after the file has been successfully read do we update file name and other state.
 
@@ -145,11 +151,33 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
     // 7. Tokenize the new text.
 
     try self.tokenize(allocator);
+
+    // 8. Initialize a language, if we have an implementation for it.
+
+    if (std.mem.eql(u8, std.fs.path.extension(self.filename.items), ".zig")) {
+        self.language = Zig.init();
+    } else {
+        self.language = null;
+    }
 }
 
 /// Saves the text to the current location based on the `filename` field.
-pub fn saveFile(self: *Editor) !void {
-    const file = try std.fs.cwd().createFile(self.filename.items, .{});
+pub fn saveFile(self: *Editor, gpa: std.mem.Allocator) !void {
+    if (self.language) |*l| format_text: {
+        const formatted = l.formatter.format(gpa, self.text.items) catch break :format_text;
+        defer gpa.free(formatted);
+
+        self.text.clearRetainingCapacity();
+        try self.text.ensureTotalCapacity(gpa, formatted.len);
+        self.text.appendSliceAssumeCapacity(formatted);
+
+        try self.updateLines(gpa);
+        try self.tokenize(gpa);
+    }
+
+    std.log.debug("saving file: {s}", .{self.filename.items});
+
+    const file = try std.fs.cwd().createFile(self.filename.items, .{ .read = true, .truncate = true });
     defer file.close();
 
     var buffer: [1024]u8 = undefined;
