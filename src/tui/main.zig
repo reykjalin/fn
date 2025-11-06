@@ -256,8 +256,13 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
         },
         .mouse => |mouse| if (container.hasMouse(mouse)) |_| {
             if (mouse.button == .left and mouse.type == .press) {
-                const clicked_line = mouse.row +| state.v_scroll;
-                const clicked_col = mouse.col +| state.h_scroll;
+                // We need to make sure we get the mouse row clicked, relative to the window position.
+                const mouse_row = mouse.row -| @as(u16, @intCast(container.y_off));
+                const clicked_line = mouse_row +| state.v_scroll;
+
+                // We need to make sure we get the mouse column clicked, relative to the container position.
+                const mouse_col = mouse.col -| @as(u16, @intCast(container.x_off));
+                const clicked_col = mouse_col +| state.h_scroll;
 
                 const row = @min(clicked_line, state.editor.lineCount() -| 1);
                 const line = state.editor.getLine(row);
@@ -272,6 +277,8 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                     clicked_col,
                     visual_line_len,
                 );
+
+                std.log.debug("clicked: l {d} c {d}", .{ row, col });
 
                 state.editor.selections.clearRetainingCapacity();
                 try state.editor.appendSelection(
