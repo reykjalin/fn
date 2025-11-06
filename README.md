@@ -105,3 +105,9 @@ const libfn = @import("libfn");
 
 const editor: libfn.Editor = .init(allocator);
 ```
+
+## Acknowledgements
+
+- [Tim Culverhouse](https://rockorager.dev) - for his incredible work on [libvaxis](https://github.com/rockorager/libvaxis).
+- [CJ van den Berg](https://github.com/neurocyte) - for his inspiring work on [Flow Control](https://flow-control.dev).
+- [David Vanderson](https://github.com/david-vanderson) - for his work on [DVUI](https://david-vanderson.github.io/), the inspiration for the TUI framework used to develop Fönn.
