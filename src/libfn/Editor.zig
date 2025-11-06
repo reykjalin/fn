@@ -388,10 +388,47 @@ pub fn selectPreviousWord(self: *Editor) void {
 
 /// Deletes everything in front of each cursor until the start of each cursor's line.
 /// If cursor is already at the start of the line, it should delete the newline in front of it.
-pub fn deleteToStartOfLine(self: *Editor) void {
-    _ = self;
+pub fn deleteToStartOfLine(self: *Editor, gpa: std.mem.Allocator) !void {
+    std.log.debug("deleting to start of line", .{});
+    if (self.text.items.len == 0) return;
 
-    // TODO: implement.
+    var selections: std.ArrayList(*Selection) = .empty;
+    defer selections.deinit(gpa);
+
+    try selections.ensureTotalCapacity(gpa, self.selections.items.len);
+
+    for (self.selections.items) |*s| selections.appendAssumeCapacity(s);
+
+    // Selections aren't guaranteed to be in order, so we sort them and make sure we delete
+    // from the back of the text first. That way we don't have to update all the cursors after each
+    // deletion.
+    std.mem.sort(*Selection, selections.items, {}, Selection.lessThanPtr);
+    std.mem.reverse(*Selection, selections.items);
+
+    for (selections.items) |s| {
+        const row = s.cursor.row;
+        const line = self.getLine(row);
+        const col = @min(s.cursor.col, line.len);
+
+        const line_start = self.line_indexes.items[row].toInt();
+
+        if (col == 0) continue;
+
+        var indexes: std.ArrayList(usize) = .empty;
+        defer indexes.deinit(gpa);
+
+        try indexes.ensureTotalCapacity(gpa, col);
+
+        for (line_start..line_start + col) |idx| indexes.appendAssumeCapacity(idx);
+
+        self.text.orderedRemoveMany(indexes.items);
+
+        s.cursor.col = 0;
+        s.anchor = s.cursor;
+    }
+
+    try self.updateLines(gpa);
+    try self.tokenize(gpa);
 }
 
 /// Returns the primary selection.

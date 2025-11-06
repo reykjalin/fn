@@ -225,6 +225,7 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
 
     switch (ctx.current_event) {
         .key_press => |key| {
+            std.log.debug("pressed: {}", .{key});
             if (state.mode == .normal) {
                 if (key.matches('i', .{})) state.mode = .insert;
                 if (key.matches('g', .{})) state.mode = .goto;
@@ -260,6 +261,11 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 if (key.matches(vaxis.Key.right, .{})) state.editor.moveSelectionsRight();
 
                 if (key.matches('c', .{ .ctrl = true })) state.mode = .normal;
+
+                // For some reason, when pressing cmd+backspace on macOS it's interpreted as
+                // ctrl+forward_delete. forward_delete has key code 0x75 and doesn't have an alias
+                // in vaxis yet. See https://github.com/rockorager/libvaxis/pull/272.
+                if (key.matches(0x75, .{ .ctrl = true })) try state.editor.deleteToStartOfLine(state.gpa);
 
                 if (key.text) |text| {
                     try state.editor.insertTextAtCursors(state.gpa, text);
