@@ -182,6 +182,10 @@ pub fn saveFile(self: *Editor, gpa: std.mem.Allocator) !void {
 
         try self.updateLines(gpa);
         try self.tokenize(gpa);
+
+        // It's possible the formatter resulted in fewer lines, in which case we have to make sure
+        // the cursors are still valid, and not beyond the end of the file.
+        self.ensureSelectionsAreValid();
     }
 
     std.log.debug("saving file: {s}", .{self.filename.items});
@@ -760,6 +764,13 @@ fn updateLines(self: *Editor, allocator: Allocator) !void {
 
         break :longest_line max;
     };
+}
+
+fn ensureSelectionsAreValid(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        if (s.cursor.row >= self.lineCount()) s.cursor.row = self.lineCount() -| 1;
+        if (s.anchor.row >= self.lineCount()) s.anchor.row = self.lineCount() -| 1;
+    }
 }
 
 /// Converts the provided `Pos` object to a `CoordinatePos`.
