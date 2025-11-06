@@ -11,6 +11,7 @@ const c_mocha = @import("./themes/catppuccin-mocha.zig");
 const Mode = enum {
     normal,
     insert,
+    goto,
 };
 
 const Event = union(enum) {
@@ -212,6 +213,7 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
         switch (state.mode) {
             .insert => ctx.root_win.setCursorShape(.beam_blink),
             .normal => ctx.root_win.setCursorShape(.block),
+            .goto => ctx.root_win.setCursorShape(.block),
         }
     }
 
@@ -225,6 +227,7 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
         .key_press => |key| {
             if (state.mode == .normal) {
                 if (key.matches('i', .{})) state.mode = .insert;
+                if (key.matches('g', .{})) state.mode = .goto;
 
                 if (key.matches('h', .{})) state.editor.moveSelectionsLeft();
                 if (key.matches(vaxis.Key.left, .{})) state.editor.moveSelectionsLeft();
@@ -250,6 +253,11 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 if (key.text) |text| {
                     try state.editor.insertTextAtCursors(state.gpa, text);
                 }
+            } else if (state.mode == .goto) {
+                if (key.matches('h', .{})) state.editor.moveSelectionsToStartOfLine();
+                if (key.matches('l', .{})) state.editor.moveSelectionsToEndOfLine();
+
+                state.mode = .normal;
             }
 
             if (key.matches('s', .{ .super = true })) try state.editor.saveFile(state.gpa);

@@ -305,18 +305,52 @@ pub fn moveSelectionsRight(self: *Editor) void {
     // TODO: Merge selections.
 }
 
-/// Collapses each selection to its cursor and moves it to the start of the line. If the cursor is
-/// already at the start of the line it will be moved to the end of the previous line.
-pub fn moveSelectionsToStartOfLine(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+/// Collapses each selection to its cursor and moves it to the end of the line. If the cursor is
+/// already at the end of the line nothing will happen.
+pub fn moveSelectionsToEndOfLine(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        // 1. Move the cursor to the end of its current line.
+
+        const cursor_line = self.getLine(s.cursor.row);
+        s.cursor.col = if (std.mem.endsWith(u8, cursor_line, "\n")) cursor_line.len -| 1 else cursor_line.len;
+
+        // 2. Turn the selection into a cursor by moving it to the same position as the cursor.
+
+        s.anchor = s.cursor;
+    }
+
+    // 3. Remove any selections in the same location.
+
+    for (0..self.selections.items.len -| 1) |idx| {
+        const s = self.selections.items[idx];
+        for (self.selections.items[idx + 1 ..], idx + 1..) |other, other_idx| {
+            // Just in case 2 or more consecutive selections happen to be in the same position
+            // we make sure this is a while loop so all the duplicates are removed.
+            while (s.eql(other)) _ = self.selections.orderedRemove(other_idx);
+        }
+    }
 }
 
-/// Collapses each selection to its cursor and moves it to the end of the line. If the cursor is
-/// already at the end of the line it will be moved to the start of the next line.
-pub fn moveSelectionsToEndOfLine(self: *Editor) void {
-    _ = self;
-    // TODO: implement.
+/// Collapses each selection to its cursor and moves it to the start of the line. If the cursor is
+/// already at the start of the line nothing will happen.
+pub fn moveSelectionsToStartOfLine(self: *Editor) void {
+    // 1. Collapse selections and move them to the start of the line.
+
+    for (self.selections.items) |*s| {
+        s.cursor.col = 0;
+        s.anchor = s.cursor;
+    }
+
+    // 2. Remove any selections in the same location.
+
+    for (0..self.selections.items.len -| 1) |idx| {
+        const s = self.selections.items[idx];
+        for (self.selections.items[idx + 1 ..], idx + 1..) |other, other_idx| {
+            // Just in case 2 or more consecutive selections happen to be in the same position
+            // we make sure this is a while loop so all the duplicates are removed.
+            while (s.eql(other)) _ = self.selections.orderedRemove(other_idx);
+        }
+    }
 }
 
 /// Selects the word that comes after each selection's cursor. Behavior varies depending on cursor
