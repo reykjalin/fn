@@ -164,8 +164,17 @@ pub fn openFile(self: *Editor, allocator: Allocator, filename: []const u8) !void
 /// Saves the text to the current location based on the `filename` field.
 pub fn saveFile(self: *Editor, gpa: std.mem.Allocator) !void {
     if (self.language) |*l| format_text: {
-        const formatted = l.formatter.format(gpa, self.text.items) catch break :format_text;
+        const formatted = l.formatter.format(gpa, self.text.items) catch {
+            std.log.debug("failed to format buffer", .{});
+            break :format_text;
+        };
         defer gpa.free(formatted);
+
+        // If, for whatever reason, the formatter doesn't return anything, we likely do not want to
+        // actually empty the text buffer, so we do nothing in that case.
+        if (std.mem.eql(u8, formatted, "")) break :format_text;
+
+        std.log.debug("formatted source:\n{s}", .{formatted});
 
         self.text.clearRetainingCapacity();
         try self.text.ensureTotalCapacity(gpa, formatted.len);
