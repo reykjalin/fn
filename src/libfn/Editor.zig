@@ -422,7 +422,7 @@ pub fn getAllTextOwned(self: *const Editor, allocator: Allocator) ![]const u8 {
     return try allocator.dupe(u8, self.text.items);
 }
 
-pub fn deleteSelections(self: *Editor, allocator: Allocator) !void {
+pub fn deleteInsideSelections(self: *Editor, allocator: Allocator) !void {
     if (self.text.items.len == 0) return;
 
     var selections: std.ArrayListUnmanaged(*Selection) = .empty;
@@ -643,6 +643,17 @@ pub fn deleteCharacterBeforeCursors(self: *Editor, allocator: Allocator) !void {
             j += 1;
         }
     }
+}
+
+pub fn startNewLineBelow(self: *Editor, gpa: std.mem.Allocator) !void {
+    self.moveSelectionsToEndOfLine();
+    try self.insertTextAtCursors(gpa, "\n");
+}
+
+pub fn startNewLineAbove(self: *Editor, gpa: std.mem.Allocator) !void {
+    self.moveSelectionsUp();
+    self.moveSelectionsToEndOfLine();
+    try self.insertTextAtCursors(gpa, "\n");
 }
 
 pub fn lineCount(self: *const Editor) usize {

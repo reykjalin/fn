@@ -237,6 +237,17 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 if (key.matches(vaxis.Key.up, .{})) state.editor.moveSelectionsUp();
                 if (key.matches('l', .{})) state.editor.moveSelectionsRight();
                 if (key.matches(vaxis.Key.right, .{})) state.editor.moveSelectionsRight();
+
+                if (key.matches('o', .{})) {
+                    try state.editor.startNewLineBelow(state.gpa);
+                    state.mode = .insert;
+                }
+                if (key.matches('O', .{})) {
+                    try state.editor.startNewLineAbove(state.gpa);
+                    state.mode = .insert;
+                }
+
+                if (key.matches('d', .{})) try state.editor.deleteInsideSelections(state.gpa);
             } else if (state.mode == .insert) {
                 if (key.matches(vaxis.Key.enter, .{})) try state.editor.insertTextAtCursors(state.gpa, "\n");
                 if (key.matches(vaxis.Key.tab, .{})) try state.editor.insertTextAtCursors(state.gpa, "    ");
