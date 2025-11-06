@@ -35,7 +35,7 @@ zig build run
 zig build run -- path/to/file
 
 # Release build in ~/.local/bin/fn.
-zig build -Doptimize=ReleaseSafe --prefix ~/.local
+zig build --release=fast --prefix ~/.local
 ```
 
 ## Usage
@@ -69,7 +69,7 @@ zig build test
 ### Usage
 
 ```sh
-$ zig fetch --save git+https://git.sr.ht/~reykjalin/fn
+$ zig fetch --save git+https://tangled.org/@reykjalin.org/fn
 ```
 
 Then, in your `build.zig`:
@@ -80,13 +80,18 @@ const optimize = b.standardOptimizeOption(.{});
 
 const libfn_dep = b.dependency("libfn", .{ .optimize = optimize, .target = target });
 
-const exe = b.addExecutable(.{
-    .name = "example",
-    .root_source_file = root_source_file,
+const root_module = b.createModule(.{
+    .root_source_file = b.path("src/tui/main.zig"),
     .target = target,
     .optimize = optimize,
 });
-exe.root_module.addImport("libfn", libfn_dep.module("libfn"));
+
+root_module.addImport("libfn", libfn_dep.module("libfn"));
+
+const exe = b.addExecutable(.{
+    .name = "example",
+    .root_module = root_module,
+});
 
 b.installArtifact(exe);
 ```
