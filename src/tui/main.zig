@@ -228,6 +228,15 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
             std.log.debug("pressed: {}", .{key});
             if (state.mode == .normal) {
                 if (key.matches('i', .{})) state.mode = .insert;
+                if (key.matches('I', .{})) {
+                    state.editor.moveSelectionsToStartOfLine();
+                    state.mode = .insert;
+                }
+                if (key.matches('A', .{})) {
+                    state.editor.moveSelectionsToEndOfLine();
+                    state.mode = .insert;
+                }
+
                 if (key.matches('g', .{})) state.mode = .goto;
 
                 if (key.matches('h', .{})) state.editor.moveSelectionsLeft();
