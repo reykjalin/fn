@@ -12,6 +12,7 @@ const Mode = enum {
     normal,
     insert,
     goto,
+    maybe_exit_insert,
 };
 
 const Event = union(enum) {
@@ -212,6 +213,7 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
     {
         switch (state.mode) {
             .insert => ctx.root_win.setCursorShape(.beam_blink),
+            .maybe_exit_insert => {}, // Just keep whatever cursor is currently active.
             .normal => ctx.root_win.setCursorShape(.block),
             .goto => ctx.root_win.setCursorShape(.block),
         }
@@ -277,13 +279,24 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 if (key.matches(0x75, .{ .ctrl = true })) try state.editor.deleteToStartOfLine(state.gpa);
 
                 if (key.text) |text| {
-                    try state.editor.insertTextAtCursors(state.gpa, text);
+                    if (std.mem.eql(u8, text, "j"))
+                        state.mode = .maybe_exit_insert
+                    else
+                        try state.editor.insertTextAtCursors(state.gpa, text);
                 }
             } else if (state.mode == .goto) {
                 if (key.matches('h', .{})) state.editor.moveSelectionsToStartOfLine();
                 if (key.matches('l', .{})) state.editor.moveSelectionsToEndOfLine();
 
                 state.mode = .normal;
+            } else if (state.mode == .maybe_exit_insert) {
+                if (key.matches('k', .{})) {
+                    state.mode = .normal;
+                } else {
+                    try state.editor.insertTextAtCursors(state.gpa, "j");
+                    if (key.text) |text| try state.editor.insertTextAtCursors(state.gpa, text);
+                    state.mode = .insert;
+                }
             }
 
             if (key.matches('s', .{ .super = true })) try state.editor.saveFile(state.gpa);
