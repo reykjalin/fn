@@ -13,6 +13,7 @@ const Mode = enum {
     insert,
     goto,
     maybe_exit_insert,
+    select,
 };
 
 const Event = union(enum) {
@@ -216,6 +217,7 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
             .maybe_exit_insert => {}, // Just keep whatever cursor is currently active.
             .normal => ctx.root_win.setCursorShape(.block),
             .goto => ctx.root_win.setCursorShape(.block),
+            .select => ctx.root_win.setCursorShape(.block),
         }
     }
 
@@ -240,6 +242,8 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                 }
 
                 if (key.matches('g', .{})) state.mode = .goto;
+
+                if (key.matches('v', .{})) state.mode = .select;
 
                 if (key.matches('h', .{})) state.editor.moveSelectionsLeft();
                 if (key.matches(vaxis.Key.left, .{})) state.editor.moveSelectionsLeft();
@@ -297,6 +301,19 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
                     if (key.text) |text| try state.editor.insertTextAtCursors(state.gpa, text);
                     state.mode = .insert;
                 }
+            } else if (state.mode == .select) {
+                if (key.matches('h', .{})) state.editor.extendSelectionsLeft();
+                if (key.matches('j', .{})) state.editor.extendSelectionsDown();
+                if (key.matches('k', .{})) state.editor.extendSelectionsUp();
+                if (key.matches('l', .{})) state.editor.extendSelectionsRight();
+
+                if (key.matches('d', .{})) {
+                    try state.editor.deleteInsideSelections(state.gpa);
+                    state.mode = .normal;
+                }
+
+                if (key.matches('v', .{})) state.mode = .normal;
+                if (key.matches(vaxis.Key.escape, .{})) state.mode = .normal;
             }
 
             if (key.matches('s', .{ .super = true })) try state.editor.saveFile(state.gpa);
@@ -337,6 +354,8 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
         else => {},
     }
 
+    // Draw text.
+    // FIXME: no need to draw to the end of the file.
     for (state.v_scroll..state.editor.lineCount()) |idx| {
         const line = state.editor.getLine(idx);
 
@@ -346,6 +365,54 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
             .{ .text = line[state.h_scroll..] },
             .{ .row_offset = @intCast(idx -| state.v_scroll), .wrap = .none },
         );
+    }
+
+    // Draw selections.
+    for (state.editor.selections.items) |s| {
+        // If no part of this selection is visible we can skip rendering it.
+        if ((s.cursor.row < state.v_scroll or s.cursor.row > state.v_scroll +| container.height) and
+            (s.anchor.row < state.v_scroll or s.anchor.row > state.v_scroll +| container.height))
+        {
+            continue;
+        }
+
+        const row_start = s.toRange().before().row -| state.v_scroll;
+        const line_start = state.editor.getLine(row_start);
+        const col_start = if (s.toRange().before().row < state.v_scroll)
+            0
+        else
+            @min(s.toRange().before().col -| state.h_scroll, line_start.len -| state.h_scroll);
+
+        const row_end = @min(s.toRange().after().row -| state.v_scroll, state.v_scroll +| container.height);
+        const line_end = state.editor.getLine(row_end);
+        const col_end = if (s.toRange().after().row > state.v_scroll +| container.height)
+            line_end.len -| state.h_scroll
+        else
+            s.toRange().after().col -| state.h_scroll;
+
+        var row_it = row_start;
+
+        std.debug.assert(
+            row_start < row_end or
+                (row_start == row_end and col_start <= col_end),
+        );
+
+        while (row_it <= row_end) {
+            const line = state.editor.getLine(row_it);
+
+            const start = if (row_it == row_start) col_start else 0;
+            const end = if (row_it == row_end) col_end else line.len -| state.h_scroll;
+
+            for (start..end) |cell_col| {
+                if (container.readCell(@intCast(cell_col), @intCast(row_it))) |cell| {
+                    var new_cell = cell;
+                    new_cell.style = .{ .reverse = true };
+                    container.writeCell(@intCast(cell_col), @intCast(row_it), new_cell);
+                }
+            }
+
+            row_it +|= 1;
+        }
     }
 }
 

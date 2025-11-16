@@ -353,6 +353,56 @@ pub fn moveSelectionsToStartOfLine(self: *Editor) void {
     }
 }
 
+pub fn extendSelectionsRight(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        s.cursor.col = s.cursor.col +| 1;
+
+        const line = self.getLine(s.cursor.row);
+
+        if (s.isCursor()) s.anchor.col = @min(s.anchor.col -| 1, line.len);
+
+        if (s.cursor.row >= self.lineCount() and s.cursor.col > line.len) {
+            s.cursor.col = line.len;
+        } else if (s.cursor.col > line.len) {
+            s.cursor.row = s.cursor.row +| 1;
+            s.cursor.col = 0;
+        }
+    }
+}
+
+pub fn extendSelectionsLeft(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        if (s.cursor.col == 0 and s.cursor.row == 0) continue;
+
+        if (s.isCursor()) {
+            const line = self.getLine(s.cursor.row);
+            s.anchor.col = @min(s.anchor.col + 1, line.len);
+        }
+
+        if (s.cursor.col == 0) {
+            s.cursor.row -= 1;
+            const line = self.getLine(s.cursor.row);
+            s.cursor.col = line.len;
+        } else {
+            s.cursor.col -= 1;
+        }
+    }
+}
+
+pub fn extendSelectionsDown(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        if (s.cursor.row >= self.lineCount()) continue;
+        s.cursor.row += 1;
+    }
+}
+
+pub fn extendSelectionsUp(self: *Editor) void {
+    for (self.selections.items) |*s| {
+        if (s.cursor.row == 0) continue;
+        s.cursor.row -= 1;
+    }
+}
+
 /// Selects the word that comes after each selection's cursor. Behavior varies depending on cursor
 /// location for each selection:
 ///
