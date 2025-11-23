@@ -151,12 +151,11 @@ pub fn update(ctx: Vxim.UpdateContext) !Vxim.UpdateResult {
 
             if (is_selection_row_visible and is_selection_col_visible) {
                 const cursor_line = state.editor.getLine(selection.cursor.row);
-                const normalized_row = selection.cursor.row -| state.v_scroll;
+                const screen_row = selection.cursor.row -| state.v_scroll;
 
-                const line_with_h_scroll = if (state.h_scroll > cursor_line.len) "" else cursor_line[state.h_scroll..];
-                const normalized_col = selection.cursor.getVisualColumnForText(line_with_h_scroll);
+                const screen_col = @min(selection.cursor.col, cursor_line.len) -| state.h_scroll;
 
-                scroll_body.showCursor(@intCast(normalized_col), @intCast(normalized_row));
+                scroll_body.showCursor(@intCast(screen_col), @intCast(screen_row));
             } else {
                 scroll_body.hideCursor();
             }
@@ -369,49 +368,32 @@ fn editor(ctx: Vxim.UpdateContext, container: vaxis.Window) !void {
 
     // Draw selections.
     for (state.editor.selections.items) |s| {
-        // If no part of this selection is visible we can skip rendering it.
-        if ((s.cursor.row < state.v_scroll or s.cursor.row > state.v_scroll +| container.height) and
-            (s.anchor.row < state.v_scroll or s.anchor.row > state.v_scroll +| container.height))
-        {
-            continue;
-        }
+        const before = s.toRange().before();
+        const after = s.toRange().after();
 
-        const row_start = s.toRange().before().row -| state.v_scroll;
-        const line_start = state.editor.getLine(row_start);
-        const col_start = if (s.toRange().before().row < state.v_scroll)
-            0
-        else
-            @min(s.toRange().before().col -| state.h_scroll, line_start.len -| state.h_scroll);
+        for (before.row..after.row + 1) |row| {
+            if (row < state.v_scroll) continue;
+            const screen_row = row -| state.v_scroll;
 
-        const row_end = @min(s.toRange().after().row -| state.v_scroll, state.v_scroll +| container.height);
-        const line_end = state.editor.getLine(row_end);
-        const col_end = if (s.toRange().after().row > state.v_scroll +| container.height)
-            line_end.len -| state.h_scroll
-        else
-            s.toRange().after().col -| state.h_scroll;
+            const line = state.editor.getLine(row);
 
-        var row_it = row_start;
+            const col_start = if (row == before.row)
+                @min(before.col, line.len)
+            else
+                0;
+            const col_end = if (row == after.row)
+                @min(after.col, line.len)
+            else
+                line.len;
 
-        std.debug.assert(
-            row_start < row_end or
-                (row_start == row_end and col_start <= col_end),
-        );
-
-        while (row_it <= row_end) {
-            const line = state.editor.getLine(row_it);
-
-            const start = if (row_it == row_start) col_start else 0;
-            const end = if (row_it == row_end) col_end else line.len -| state.h_scroll;
-
-            for (start..end) |cell_col| {
-                if (container.readCell(@intCast(cell_col), @intCast(row_it))) |cell| {
+            for (col_start..col_end + 1) |col| {
+                const screen_col = col -| state.h_scroll;
+                if (container.readCell(@intCast(screen_col), @intCast(screen_row))) |cell| {
                     var new_cell = cell;
                     new_cell.style = .{ .reverse = true };
-                    container.writeCell(@intCast(cell_col), @intCast(row_it), new_cell);
+                    container.writeCell(@intCast(screen_col), @intCast(screen_row), new_cell);
                 }
             }
-
-            row_it +|= 1;
         }
     }
 }
